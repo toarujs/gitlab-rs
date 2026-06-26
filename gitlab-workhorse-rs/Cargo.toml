@@ -1,0 +1,98 @@
+[package]
+name = "gitlab-workhorse-rs"
+version = "0.1.0"
+edition = "2024"
+description = "GitLab Workhorse rewritten in Rust for better performance and lower memory usage"
+
+[dependencies]
+# Web framework
+axum = { version = "0.7", features = ["macros", "multipart", "ws"] }
+tower = { version = "0.4", features = ["full"] }
+tower-http = { version = "0.5", features = ["full"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP client
+hyper = { version = "1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+hyperlocal = "0.9"
+http-body = "1"
+http-body-util = "0.1"
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# TLS / HTTP2
+tokio-rustls = "0.26"
+rustls-pemfile = "2"
+rustls = "0.23"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Git implementation
+gix = { version = "0.66", features = ["max-performance"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# Configuration
+config = "0.14"
+
+# Utilities
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+bytes = "1"
+futures = "0.3"
+tokio-util = { version = "0.7", features = ["full"] }
+url = { version = "2", features = ["serde"] }
+mime_guess = "2"
+sha1 = "0.10"
+base64 = "0.22"
+hmac = "0.12"
+sha2 = "0.10"
+ipnet = "2"
+
+# Compression
+flate2 = "1"
+brotli = "6"
+
+# Regex
+regex = "1"
+
+# Redis
+redis = { version = "0.25", features = ["tokio-comp", "connection-manager"] }
+
+# WebSocket
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+
+# Metrics
+prometheus = "0.13"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Encoding
+hex = "0.4"
+
+# Image processing
+image = { version = "0.25", default-features = false, features = ["webp", "png", "jpeg", "gif", "avif"] }
+
+# LRU cache
+moka = { version = "0.12", features = ["future"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+axum-test = "14"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "benchmarks"
+harness = false
