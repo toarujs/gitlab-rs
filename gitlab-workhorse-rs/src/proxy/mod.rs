@@ -378,8 +378,25 @@ async fn proxy_via_tcp(
             // Read response body as bytes (preserves binary data)
             let resp_body = response.bytes().await.unwrap_or_default();
 
+            // Handle X-Sendfile: Rails returns file path in x-sendfile header, workhorse serves it
+            let resp_body = if let Some(sendfile_path) = filtered_response_headers.get(crate::headers::X_SENDFILE_HEADER) {
+                if let Ok(path) = sendfile_path.to_str() {
+                    match tokio::fs::read(path).await {
+                        Ok(file_data) => {
+                            tracing::info!("X-Sendfile served: {} ({} bytes)", path, file_data.len());
+                            Bytes::from(file_data)
+                        }
+                        Err(e) => {
+                            tracing::error!("X-Sendfile read failed: {}: {}", path, e);
+                            resp_body
+                        }
+                    }
+                } else {
+                    resp_body
+                }
+            }
             // Handle gitlab-workhorse-detect-content-type: read file from disk when body is empty
-            let resp_body = if resp_body.is_empty()
+            else if resp_body.is_empty()
                 && crate::headers::is_detect_content_type_header_present(&filtered_response_headers)
             {
                 let file_path = format!("/var/opt/gitlab/gitlab-rails{}", uri.path());
@@ -417,7 +434,9 @@ async fn proxy_via_tcp(
                         .and_then(|v| v.to_str().ok())
                         .unwrap_or("application/octet-stream")
                         .to_string();
-                    let cache_key = format!("{}:{}", method.as_str(), uri.path());
+    let cache_key = format!("{}:{}", method.as_str(), uri.path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or(uri.path()));
                     cache.set(cache_key, resp_body.clone(), content_type, None).await;
                 }
             }
@@ -485,6 +504,18 @@ async fn proxy_via_unix_socket(
     request = request.header("host", original_host);
     request = request.header("X-Forwarded-Proto", "https");
 
+    // Add workhorse identification headers (JWT auth)
+    if let Some(ref secret) = state.secret {
+        let mut auth_headers = HeaderMap::new();
+        if secret::add_workhorse_headers(&mut auth_headers, secret).is_ok() {
+            for (key, value) in auth_headers.iter() {
+                if let Ok(v) = value.to_str() {
+                    request = request.header(key.as_str(), v);
+                }
+            }
+        }
+    }
+
     let req = request
         .body(http_body_util::Full::new(body))
         .map_err(|_| StatusCode::BAD_REQUEST)?;
@@ -525,8 +556,25 @@ async fn proxy_via_unix_socket(
     })?;
     let body_bytes = collected.to_bytes();
 
+    // Handle X-Sendfile: Rails returns file path in x-sendfile header, workhorse serves it
+    let body_bytes = if let Some(sendfile_path) = filtered_response_headers.get(crate::headers::X_SENDFILE_HEADER) {
+        if let Ok(path) = sendfile_path.to_str() {
+            match tokio::fs::read(path).await {
+                Ok(file_data) => {
+                    tracing::info!("X-Sendfile served: {} ({} bytes)", path, file_data.len());
+                    Bytes::from(file_data)
+                }
+                Err(e) => {
+                    tracing::error!("X-Sendfile read failed: {}: {}", path, e);
+                    body_bytes
+                }
+            }
+        } else {
+            body_bytes
+        }
+    }
     // Handle gitlab-workhorse-detect-content-type: read file from disk when body is empty
-    let body_bytes = if body_bytes.is_empty()
+    else if body_bytes.is_empty()
         && crate::headers::is_detect_content_type_header_present(&filtered_response_headers)
     {
         let file_path = format!("/var/opt/gitlab/gitlab-rails{}", uri.path());

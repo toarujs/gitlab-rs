@@ -39,8 +39,14 @@ impl Secret {
         let content = std::fs::read_to_string(path)?;
         let content = content.trim().to_string();
 
-        let bytes = if content.len() == 44 && !content.contains('\n') {
-            // Go uses base64.URLEncoding (URL-safe, no padding) for secret tokens
+        // Rails uses Base64.strict_decode64 (standard Base64 with +/ and padding)
+        // The secret file contains standard Base64-encoded binary data
+        let bytes = if content.contains('+') || content.contains('/') || content.contains('=') {
+            // Standard Base64 (with +, /, =)
+            use base64::{engine::general_purpose::STANDARD, Engine};
+            STANDARD.decode(&content)?
+        } else if content.len() == 44 && !content.contains('\n') {
+            // URL-safe Base64 (Go-style, with -, _ no padding)
             use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
             URL_SAFE_NO_PAD.decode(&content)?
         } else {
@@ -210,5 +216,19 @@ mod tests {
         let mut padded = vec![0u8; 32];
         padded[..secret_bytes.len()].copy_from_slice(secret_bytes.as_bytes());
         assert_eq!(secret.bytes.len(), 32);
+    }
+}
+
+// Debug function to log JWT token
+pub fn debug_jwt(token: &str) {
+    tracing::info!("Generated JWT token: {}", token);
+    // Decode and log claims
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() == 3 {
+        if let Ok(payload_bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1]) {
+            if let Ok(claims) = std::str::from_utf8(&payload_bytes) {
+                tracing::info!("JWT claims: {}", claims);
+            }
+        }
     }
 }

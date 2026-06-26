@@ -92,6 +92,9 @@ const PROTECTED_RESPONSE_HEADERS: &[&str] = &[
     "content-encoding",
     "transfer-encoding",
     "connection",
+    "gitlab-workhorse-send-data",
+    "gitlab-workhorse-detect-content-type",
+    "x-sendfile",
 ];
 
 /// Forward request headers, filtering out hop-by-hop headers

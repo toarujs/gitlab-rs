@@ -316,7 +316,13 @@ async fn main() -> anyhow::Result<()> {
     let injecters = Arc::new(senddata::InjecterRegistry::new());
     register_injecters(&injecters);
 
-    let secret = secret::Secret::from_path(&cli.secret_path).ok();
+    let secret = match secret::Secret::from_path(&cli.secret_path) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            tracing::warn!("Failed to load workhorse secret from {}: {}. JWT auth headers will NOT be sent.", cli.secret_path, e);
+            None
+        }
+    };
 
     let api_limit = cli.api_limit;
     let _queue_limit = if cli.api_queue_limit > 0 {
@@ -403,6 +409,11 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/v4/jobs/:job_id/artifacts",
             get(routes::artifacts::handle_artifacts_download),
+        )
+        // Git LFS
+        .route(
+            "/api/v4/projects/:project_id/lfs/objects/*path",
+            put(routes::git_lfs::handle_lfs_upload),
         )
         // CI long polling
         .route(
