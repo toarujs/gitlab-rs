@@ -378,6 +378,25 @@ async fn proxy_via_tcp(
             // Read response body as bytes (preserves binary data)
             let resp_body = response.bytes().await.unwrap_or_default();
 
+            // Handle gitlab-workhorse-detect-content-type: read file from disk when body is empty
+            let resp_body = if resp_body.is_empty()
+                && crate::headers::is_detect_content_type_header_present(&filtered_response_headers)
+            {
+                let file_path = format!("/var/opt/gitlab/gitlab-rails{}", uri.path());
+                match tokio::fs::read(&file_path).await {
+                    Ok(file_data) => {
+                        tracing::info!("Served file from disk: {} ({} bytes)", file_path, file_data.len());
+                        Bytes::from(file_data)
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to read file from disk: {}: {}", file_path, e);
+                        resp_body
+                    }
+                }
+            } else {
+                resp_body
+            };
+
             // Check for send-data injection (only for text responses)
             if let Ok(body_text) = std::str::from_utf8(&resp_body) {
                 if let Some(inject_response) = senddata::intercept_send_data(
@@ -505,6 +524,25 @@ async fn proxy_via_unix_socket(
         StatusCode::BAD_GATEWAY
     })?;
     let body_bytes = collected.to_bytes();
+
+    // Handle gitlab-workhorse-detect-content-type: read file from disk when body is empty
+    let body_bytes = if body_bytes.is_empty()
+        && crate::headers::is_detect_content_type_header_present(&filtered_response_headers)
+    {
+        let file_path = format!("/var/opt/gitlab/gitlab-rails{}", uri.path());
+        match tokio::fs::read(&file_path).await {
+            Ok(file_data) => {
+                tracing::info!("Served file from disk: {} ({} bytes)", file_path, file_data.len());
+                Bytes::from(file_data)
+            }
+            Err(e) => {
+                tracing::error!("Failed to read file from disk: {}: {}", file_path, e);
+                body_bytes
+            }
+        }
+    } else {
+        body_bytes
+    };
 
     // Check for send-data injection (only for text responses)
     if let Ok(body_text) = std::str::from_utf8(&body_bytes) {

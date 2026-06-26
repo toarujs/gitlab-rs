@@ -612,8 +612,8 @@ async fn main() -> anyhow::Result<()> {
         // Assets (static files with long cache)
         .route("/assets/*path", get(staticpages::serve_static_file))
         // Generic uploads (file upload endpoints)
-        .route("/uploads/*path", post(upload::handle_upload))
-        .route("/uploads/*path", get(upload::handle_upload_status))
+        .route("/uploads/*path", post(upload::handle_upload).get(proxy::proxy_handler))
+        // Upload status/progress (specific patterns)
         .route("/uploads/progress/*path", get(upload::handle_upload_progress))
         // Download and stream
         .route("/download/*path", get(download::handle_download))
