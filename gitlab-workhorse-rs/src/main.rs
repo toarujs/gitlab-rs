@@ -3,7 +3,7 @@ use axum::{
     middleware,
     routing::{get, post, put},
 };
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, StatusCode};
 use clap::Parser;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -235,6 +235,38 @@ fn register_injecters(registry: &senddata::InjecterRegistry) {
                     Box::pin(senddata::git_injectors::git_snapshot_inject(json_data, _headers))
                 }),
             }).await;
+
+            registry.register(senddata::Injecter {
+                name: "image-resizer".to_string(),
+                prefix: "send-data:image-resizer:".to_string(),
+                inject: Arc::new(|json_data: String, _headers: HeaderMap| {
+                    Box::pin(senddata::imageresizer_injecter::image_resizer_inject(json_data, _headers))
+                }),
+            }).await;
+
+            // Register stub injecters for remaining send-data prefixes
+            for (name, prefix) in &[
+                ("artifacts-entry", "send-data:artifacts-entry:"),
+                ("git-format-patch", "send-data:git-format-patch:"),
+                ("git-changed-paths", "send-data:git-changed-paths:"),
+                ("git-list-blobs", "send-data:git-list-blobs:"),
+                ("dependency-proxy", "send-data:dependency-proxy:"),
+                ("orbit-query", "send-data:orbit-query:"),
+            ] {
+                let name = name.to_string();
+                let prefix = prefix.to_string();
+                registry.register(senddata::Injecter {
+                    name: name.clone(),
+                    prefix: prefix.clone(),
+                    inject: Arc::new(move |_json_data: String, _headers: HeaderMap| {
+                        let name = name.clone();
+                        Box::pin(async move {
+                            tracing::warn!("Stub injecter '{}' called — Gitaly integration needed", name);
+                            Err(StatusCode::NOT_IMPLEMENTED)
+                        })
+                    }),
+                }).await;
+            }
         });
     });
 }

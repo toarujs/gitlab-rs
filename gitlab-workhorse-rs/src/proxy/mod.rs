@@ -115,7 +115,7 @@ pub struct ProxyQuery {
     pub path: String,
 }
 
-/// Main proxy handler - extracts body from request and forwards it
+/// Main proxy handler - streams request body to backend without buffering
 pub async fn proxy_handler(
     State(state): State<AppState>,
     req: axum::http::Request<Body>,
@@ -130,11 +130,13 @@ pub async fn proxy_handler(
     let client_accepts_webp = crate::imageresizer::WebPConverter::supports_webp(&headers);
     let best_format = crate::imageresizer::WebPConverter::best_supported_format(&headers);
 
-    let body_bytes = req.into_body().collect().await
-        .map_err(|_| StatusCode::BAD_REQUEST)?
-        .to_bytes();
+    // Stream request body to backend (no buffering)
+    let (parts, body) = req.into_parts();
+    let method = parts.method.clone();
+    let uri = parts.uri.clone();
+    let headers = parts.headers.clone();
 
-    let result = proxy_request_with_bytes(State(state.clone()), method.clone(), uri, headers, body_bytes).await;
+    let result = proxy_request_streaming(State(state.clone()), method.clone(), uri, headers, body).await;
 
     match result {
         Ok(mut response) => {
@@ -205,17 +207,30 @@ pub async fn proxy_request(
     headers: HeaderMap,
     body: String,
 ) -> Result<Response, StatusCode> {
-    let body_bytes = Bytes::from(body);
-    proxy_request_with_bytes(State(state), method, uri, headers, body_bytes).await
+    let body = Body::from(body);
+    proxy_request_streaming(State(state), method, uri, headers, body).await
 }
 
-/// Core proxy function that handles bytes body
+/// Convenience wrapper that converts Bytes body to streaming
+#[allow(dead_code)]
 pub async fn proxy_request_with_bytes(
     State(state): State<AppState>,
     method: Method,
     uri: Uri,
     headers: HeaderMap,
     body: Bytes,
+) -> Result<Response, StatusCode> {
+    let body = Body::from(body);
+    proxy_request_streaming(State(state), method, uri, headers, body).await
+}
+
+/// Core proxy function that streams body to backend
+pub async fn proxy_request_streaming(
+    State(state): State<AppState>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    body: Body,
 ) -> Result<Response, StatusCode> {
     let request_id = uuid::Uuid::new_v4().to_string();
     let path_display = uri.path_and_query()
@@ -287,7 +302,7 @@ pub async fn proxy_request_with_bytes(
     };
     timer.finish(response_status);
 
-    if let Ok(ref response) = result {
+    if let Ok(ref _response) = result {
         tracing::info!(
             method = %method_str,
             path = %path_str,
@@ -305,7 +320,7 @@ async fn proxy_via_tcp(
     method: Method,
     uri: Uri,
     headers: HeaderMap,
-    body: Bytes,
+    body: Body,
 ) -> Result<Response, StatusCode> {
     // Use path_and_query to preserve query parameters
     let path_and_query = uri.path_and_query()
@@ -342,9 +357,11 @@ async fn proxy_via_tcp(
         }
     }
 
-    // Forward body for methods that support it
-    if matches!(method, Method::POST | Method::PUT | Method::PATCH) && !body.is_empty() {
-        request = request.body(body);
+    // Stream body for methods that support it
+    if matches!(method, Method::POST | Method::PUT | Method::PATCH) {
+        let byte_stream = body.into_data_stream()
+            .map(|r| r.map_err(|e| -> std::io::Error { std::io::Error::new(std::io::ErrorKind::Other, e.to_string()) }));
+        request = request.body(reqwest::Body::wrap_stream(byte_stream));
     }
 
     match request.send().await {
@@ -469,14 +486,22 @@ async fn proxy_via_unix_socket(
     method: Method,
     uri: Uri,
     headers: HeaderMap,
-    body: Bytes,
+    body: Body,
     socket_path: &str,
 ) -> Result<Response, StatusCode> {
     use hyper_util::client::legacy::Client;
     use hyper_util::rt::TokioExecutor;
     use hyperlocal::UnixConnector;
+    use http_body_util::StreamBody;
+    use http_body::Frame;
 
-    let client: Client<UnixConnector, http_body_util::Full<Bytes>> = Client::builder(TokioExecutor::new()).build(UnixConnector);
+    // Convert BodyDataStream (Item=Result<Bytes, Error>) to Stream<Item=Result<Frame<Bytes>, Error>>
+    let body_stream = body.into_data_stream()
+        .map(|r| r.map(|b| Frame::data(b)));
+
+    let stream_body = StreamBody::new(body_stream);
+
+    let client = Client::builder(TokioExecutor::new()).build(UnixConnector);
 
     let path = uri.path_and_query()
         .map(|pq| pq.as_str())
@@ -516,8 +541,9 @@ async fn proxy_via_unix_socket(
         }
     }
 
+    // Stream body using StreamBody (no buffering)
     let req = request
-        .body(http_body_util::Full::new(body))
+        .body(stream_body)
         .map_err(|_| StatusCode::BAD_REQUEST)?;
 
     let resp = client.request(req.into()).await.map_err(|e| {

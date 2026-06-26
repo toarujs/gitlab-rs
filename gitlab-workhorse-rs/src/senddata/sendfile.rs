@@ -1,10 +1,13 @@
 use axum::{
+    body::Body,
     http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    response::Response,
 };
+use bytes::Bytes;
+use futures_util::StreamExt;
 use serde::Deserialize;
 use std::path::PathBuf;
-use tokio::io::AsyncReadExt;
+use tokio_util::io::ReaderStream;
 
 #[derive(Debug, Deserialize)]
 pub struct SendFileParams {
@@ -37,16 +40,22 @@ pub async fn send_file_inject(
 
     let file_size = metadata.len();
 
-    let mut file = tokio::fs::File::open(&file_path).await.map_err(|e| {
+    let file = tokio::fs::File::open(&file_path).await.map_err(|e| {
         tracing::error!("Failed to open send-file: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let mut buf = Vec::with_capacity(file_size as usize);
-    file.read_to_end(&mut buf).await.map_err(|e| {
-        tracing::error!("Failed to read send-file: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    // Stream file in chunks instead of reading entire file into memory
+    let reader_stream = ReaderStream::new(file);
+    let body_stream = reader_stream
+        .map(|result| {
+            let mapped: Result<Bytes, Box<dyn std::error::Error + Send + Sync>> = match result {
+                Ok(bytes) => Ok(Bytes::from(bytes)),
+                Err(e) => Err(Box::new(e)),
+            };
+            mapped
+        });
+    let body = Body::from_stream(body_stream);
 
     let mut response_headers = HeaderMap::new();
 
@@ -68,5 +77,8 @@ pub async fn send_file_inject(
 
     response_headers.insert("cache-control", "private, max-age=0, must-revalidate".parse().unwrap());
 
-    Ok((StatusCode::OK, response_headers, buf).into_response())
+    let mut response = Response::new(body);
+    *response.status_mut() = StatusCode::OK;
+    *response.headers_mut() = response_headers;
+    Ok(response)
 }

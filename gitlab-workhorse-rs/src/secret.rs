@@ -2,6 +2,7 @@
 use axum::{
     http::{HeaderMap, HeaderValue},
 };
+use base64::Engine;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
