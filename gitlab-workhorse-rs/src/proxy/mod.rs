@@ -287,15 +287,19 @@ pub async fn proxy_request_streaming(
     let metrics = state.metrics.clone();
     let method_str = method.as_str().to_string();
     let path_str = uri.path().to_string();
-    let result = if let Some(ref socket_path) = state.proxy.auth_socket {
-        let socket_path = socket_path.clone();
-        proxy_via_unix_socket(&state, method, uri, headers, body, &socket_path).await
-    } else if is_git_url(&path_str) {
+    // Check for git URLs FIRST — route to Go sidecar regardless of socket/tcp mode
+    let result = if is_git_url(&path_str) {
         if let Some(ref git_backend) = state.proxy.git_backend_url {
             proxy_via_git_backend(&state, method, uri, headers, body, git_backend).await
+        } else if let Some(ref socket_path) = state.proxy.auth_socket {
+            let socket_path = socket_path.clone();
+            proxy_via_unix_socket(&state, method, uri, headers, body, &socket_path).await
         } else {
             proxy_via_tcp(&state, method, uri, headers, body).await
         }
+    } else if let Some(ref socket_path) = state.proxy.auth_socket {
+        let socket_path = socket_path.clone();
+        proxy_via_unix_socket(&state, method, uri, headers, body, &socket_path).await
     } else {
         proxy_via_tcp(&state, method, uri, headers, body).await
     };

@@ -1,0 +1,21 @@
+#!/bin/bash
+# Wrapper script: starts Go sidecar then execs Rust workhorse
+# Replaces /opt/gitlab/embedded/bin/gitlab-workhorse in the container
+# Puma listens on 127.0.0.1:8080, so Go sidecar uses 127.0.0.1:8081
+# Go workhorse uses single-dash flags, Rust uses double-dash
+
+RAILS_SOCKET="/var/opt/gitlab/gitlab-rails/sockets/gitlab.socket"
+SECRET_PATH="/opt/gitlab/embedded/service/gitlab-rails/.gitlab_workhorse_secret"
+DOC_ROOT="/opt/gitlab/embedded/service/gitlab-rails/public"
+
+# Start Go workhorse sidecar on :8081 for Gitaly operations
+/opt/gitlab/embedded/bin/gitlab-workhorse-go \
+    -authSocket "$RAILS_SOCKET" \
+    -listenAddr :8081 \
+    -secretPath "$SECRET_PATH" \
+    -documentRoot "$DOC_ROOT" &
+
+sleep 3
+
+# Exec Rust workhorse with git-backend pointing to Go sidecar
+exec /opt/gitlab/embedded/bin/gitlab-workhorse-rs "$@" --git-backend http://127.0.0.1:8081
