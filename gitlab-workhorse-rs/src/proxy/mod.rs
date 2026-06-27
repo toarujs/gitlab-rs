@@ -28,6 +28,7 @@ pub struct ProxyState {
     pub backend_url: Url,
     pub client: Client,
     pub auth_socket: Option<String>,
+    pub git_backend_url: Option<String>,
     pub circuit_breaker: Option<CircuitBreaker>,
     pub connection_pool: ConnectionPool,
 }
@@ -289,6 +290,12 @@ pub async fn proxy_request_streaming(
     let result = if let Some(ref socket_path) = state.proxy.auth_socket {
         let socket_path = socket_path.clone();
         proxy_via_unix_socket(&state, method, uri, headers, body, &socket_path).await
+    } else if is_git_url(&path_str) {
+        if let Some(ref git_backend) = state.proxy.git_backend_url {
+            proxy_via_git_backend(&state, method, uri, headers, body, git_backend).await
+        } else {
+            proxy_via_tcp(&state, method, uri, headers, body).await
+        }
     } else {
         proxy_via_tcp(&state, method, uri, headers, body).await
     };
@@ -725,6 +732,94 @@ pub async fn proxy_websocket(
     response_headers.insert("upgrade", "websocket".parse().unwrap());
 
     Ok((StatusCode::SWITCHING_PROTOCOLS, response_headers, "").into_response())
+}
+
+fn is_git_url(path: &str) -> bool {
+    path.contains(".git/") || path.ends_with(".git")
+}
+
+/// Proxy to Go workhorse sidecar for Gitaly-backed git operations
+async fn proxy_via_git_backend(
+    state: &AppState,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    body: Body,
+    git_backend_url: &str,
+) -> Result<Response, StatusCode> {
+    let path_and_query = uri.path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or(uri.path());
+    let backend_url = format!("{}{}", git_backend_url.trim_end_matches('/'), path_and_query);
+
+    tracing::info!("Routing git request to Go sidecar: {}", backend_url);
+
+    let mut request = state.proxy.client.request(method.clone(), &backend_url);
+
+    let mut filtered_headers = forwardheaders::forward_request_headers(&headers, &state.proxy.backend_url);
+    filtered_headers.insert("X-Forwarded-Proto", HeaderValue::from_static("https"));
+    for (key, value) in filtered_headers.iter() {
+        request = request.header(key.as_str(), value.to_str().unwrap_or(""));
+    }
+
+    // Add workhorse headers (Go workhorse will verify and add its own JWT)
+    if let Some(ref secret) = state.secret {
+        let mut auth_headers = HeaderMap::new();
+        if secret::add_workhorse_headers(&mut auth_headers, secret).is_ok() {
+            for (key, value) in auth_headers.iter() {
+                request = request.header(key.as_str(), value.to_str().unwrap_or(""));
+            }
+        }
+    }
+
+    // Stream body
+    if matches!(method, Method::POST | Method::PUT | Method::PATCH) {
+        let byte_stream = body.into_data_stream()
+            .map(|r| r.map_err(|e| -> std::io::Error { std::io::Error::new(std::io::ErrorKind::Other, e.to_string()) }));
+        request = request.body(reqwest::Body::wrap_stream(byte_stream));
+    }
+
+    match request.send().await {
+        Ok(response) => {
+            let status = StatusCode::from_u16(response.status().as_u16())
+                .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+
+            let mut response_headers = HeaderMap::new();
+            for (key, value) in response.headers() {
+                if let Ok(v) = value.to_str() {
+                    if let Ok(name) = key.as_str().parse::<HeaderName>() {
+                        if let Ok(val) = v.parse::<HeaderValue>() {
+                            response_headers.append(name, val);
+                        }
+                    }
+                }
+            }
+
+            let filtered_response_headers = forwardheaders::forward_response_headers(
+                &response_headers,
+                None,
+                &[],
+            );
+
+            let resp_body = response.bytes().await.unwrap_or_default();
+
+            tracing::info!(
+                status = status.as_u16(),
+                size = resp_body.len(),
+                "Git sidecar response"
+            );
+
+            Ok((status, filtered_response_headers, resp_body).into_response())
+        }
+        Err(e) => {
+            tracing::error!("Git backend proxy error: {}", e);
+            if e.is_timeout() {
+                Err(StatusCode::GATEWAY_TIMEOUT)
+            } else {
+                Err(StatusCode::BAD_GATEWAY)
+            }
+        }
+    }
 }
 
 #[cfg(test)]

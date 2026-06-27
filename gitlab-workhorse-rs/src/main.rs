@@ -145,6 +145,10 @@ struct Cli {
     #[arg(long, default_value = "")]
     config: Option<String>,
 
+    /// Git backend URL (e.g., http://localhost:8080) for gitaly operations via Go sidecar
+    #[arg(long, default_value = "")]
+    git_backend: Option<String>,
+
     /// Print version and exit
     #[arg(long, default_value_t = false)]
     version: bool,
@@ -368,6 +372,7 @@ async fn main() -> anyhow::Result<()> {
             backend_url,
             client: proxy_client,
             auth_socket: cli.auth_socket.filter(|s| !s.is_empty()),
+            git_backend_url: cli.git_backend.filter(|s| !s.is_empty()),
             circuit_breaker: toml_config.as_ref().and_then(|c| c.circuit_breaker.as_ref()).map(|_| {
                 proxy::CircuitBreaker::new(5, std::time::Duration::from_secs(60))
             }),

@@ -1,0 +1,35 @@
+#!/bin/bash
+# Hybrid deployment script for GitLab Workhorse
+# Starts Go workhorse as gitaly sidecar, Rust workhorse as main proxy
+set -e
+
+RAILS_SOCKET="/var/opt/gitlab/gitlab-rails/sockets/gitlab.socket"
+SECRET_PATH="/opt/gitlab/embedded/service/gitlab-rails/.gitlab_workhorse_secret"
+DOC_ROOT="/opt/gitlab/embedded/service/gitlab-rails/public"
+
+# Stop nginx
+kill "$(cat /var/run/nginx.pid 2>/dev/null)" 2>/dev/null || true
+
+# Stop any existing Go workhorse
+pkill -f "gitlab-workhorse.*-listenAddr" 2>/dev/null || true
+sleep 1
+
+# Start Go workhorse on port 8080 for Gitaly git operations
+echo "[init] Starting Go workhorse sidecar on :8080"
+/opt/gitlab/embedded/bin/gitlab-workhorse-go \
+    -authSocket "$RAILS_SOCKET" \
+    -listenAddr :8080 \
+    -documentRoot "$DOC_ROOT" \
+    -secretPath "$SECRET_PATH" &
+GO_PID=$!
+echo "[init] Go sidecar PID: $GO_PID"
+
+# Start Rust workhorse as main entry point on port 80
+echo "[init] Starting Rust workhorse on :80"
+exec /opt/gitlab/embedded/bin/gitlab-workhorse-rs \
+    --auth-socket "$RAILS_SOCKET" \
+    --listen-addr "0.0.0.0:80" \
+    --listen-network tcp \
+    --secret-path "$SECRET_PATH" \
+    --git-backend "http://127.0.0.1:8080" \
+    --document-root "$DOC_ROOT"
