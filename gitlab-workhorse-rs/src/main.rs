@@ -788,13 +788,13 @@ async fn main() -> anyhow::Result<()> {
                     tokio::spawn(async move {
                         match tokio::net::UnixListener::bind(&callback_socket) {
                             Ok(uds) => {
-                                // Set socket permissions to 0770 so Gitaly (git user) can connect
+                                // Set socket permissions to 0777 so Gitaly (git user) can connect
                                 #[cfg(unix)]
                                 {
                                     use std::os::unix::fs::PermissionsExt;
                                     if let Ok(metadata) = std::fs::metadata(&callback_socket) {
                                         let mut perms = metadata.permissions();
-                                        perms.set_mode(0o770);
+                                        perms.set_mode(0o777);
                                         let _ = std::fs::set_permissions(&callback_socket, perms);
                                     }
                                 }
