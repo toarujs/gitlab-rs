@@ -168,16 +168,21 @@ impl GitalyClient {
         gl_username: &str,
     ) -> Result<Vec<u8>, tonic::Status> {
         let repo = self.build_repo(repo);
-        let request = PostReceivePackRequest {
+        let header = PostReceivePackRequest {
             repository: Some(repo),
-            data,
+            data: vec![],
             gl_id: gl_id.to_string(),
-            gl_repository: format!("project-1"),
+            gl_repository: "project-1".to_string(),
             gl_username: gl_username.to_string(),
             ..Default::default()
         };
+        let body = PostReceivePackRequest {
+            repository: None,
+            data,
+            ..Default::default()
+        };
 
-        let stream = tokio_stream::once(request);
+        let stream = tokio_stream::iter(vec![header, body]);
         let mut req = tonic::Request::new(stream);
         req.metadata_mut().insert("authorization", self.auth_token());
 
