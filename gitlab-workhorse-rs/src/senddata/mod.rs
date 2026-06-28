@@ -11,6 +11,7 @@ pub mod sendfile;
 pub mod sendurl;
 pub mod git_injectors;
 pub mod imageresizer_injecter;
+pub mod artifacts_entry;
 
 /// Header name matching Go's title-case format: `Gitlab-Workhorse-Send-Data`
 pub const SEND_DATA_HEADER: &str = "gitlab-workhorse-send-data";

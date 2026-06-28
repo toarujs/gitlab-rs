@@ -265,9 +265,16 @@ fn register_injecters(registry: &senddata::InjecterRegistry) {
                 }),
             }).await;
 
+            registry.register(senddata::Injecter {
+                name: "artifacts-entry".to_string(),
+                prefix: "send-data:artifacts-entry:".to_string(),
+                inject: Arc::new(|json_data: String, _headers: HeaderMap| {
+                    Box::pin(senddata::artifacts_entry::artifacts_entry_inject(json_data, _headers))
+                }),
+            }).await;
+
             // Register stub injecters for remaining send-data prefixes
             for (name, prefix) in &[
-                ("artifacts-entry", "send-data:artifacts-entry:"),
                 ("git-changed-paths", "send-data:git-changed-paths:"),
                 ("git-list-blobs", "send-data:git-list-blobs:"),
                 ("dependency-proxy", "send-data:dependency-proxy:"),

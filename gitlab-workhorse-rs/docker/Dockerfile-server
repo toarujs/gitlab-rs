@@ -1,0 +1,30 @@
+FROM gitlab/gitlab-ce:latest
+
+# 安装 WebP 运行时库 (移动端图片优化)
+RUN apt-get update && apt-get install -y libwebp7 && rm -rf /var/lib/apt/lists/*
+# 删除 Go Workhorse (用 Rust 版本替代)
+RUN rm -f /opt/gitlab/embedded/bin/gitlab-workhorse
+RUN rm -f /opt/gitlab/embedded/sbin/nginx && rm -rf /opt/gitlab/embedded/nginx
+
+# 复制 Rust Workhorse 二进制文件
+COPY gitlab-workhorse-rs /opt/gitlab/embedded/bin/gitlab-workhorse
+
+# 复制启动脚本 (覆盖官方 entrypoint)
+COPY entrypoint.sh /assets/init-container
+
+# 覆盖 GitLab Rails 源码：头像限制改为 10 MiB
+COPY gitlab-rails-overrides/app/models/concerns/avatarable.rb \
+     /opt/gitlab/embedded/service/gitlab-rails/app/models/concerns/avatarable.rb
+COPY gitlab-rails-overrides/app/views/shared/_choose_avatar_button.html.haml \
+     /opt/gitlab/embedded/service/gitlab-rails/app/views/shared/_choose_avatar_button.html.haml
+COPY gitlab-rails-overrides/app/views/user_settings/profiles/show.html.haml \
+     /opt/gitlab/embedded/service/gitlab-rails/app/views/user_settings/profiles/show.html.haml
+COPY gitlab-rails-overrides/locale/zh_CN/gitlab.po \
+     /opt/gitlab/embedded/service/gitlab-rails/locale/zh_CN/gitlab.po
+
+# 设置权限
+RUN chmod +x /opt/gitlab/embedded/bin/gitlab-workhorse && chmod +x /assets/init-container
+
+RUN echo 'gitlab_rails["lfs_enabled"] = true' >> /opt/gitlab/etc/gitlab.rb.template
+
+RUN /opt/gitlab/embedded/bin/gitlab-workhorse --version

@@ -96,6 +96,9 @@ tokio-stream = { version = "0.1", features = ["net"] }
 # Yamux multiplexing (for Gitaly sidechannel)
 yamux = "0.12"
 
+# ZIP archive support (for CI artifacts)
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+
 [build-dependencies]
 tonic-build = "0.12"
 
