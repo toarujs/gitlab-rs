@@ -13,10 +13,15 @@ pub mod gitaly {
     tonic::include_proto!("gitaly");
 }
 
-use gitaly::smart_http_service_client::SmartHttpServiceClient;
 use gitaly::{
+    blob_service_client::BlobServiceClient,
+    diff_service_client::DiffServiceClient,
+    repository_service_client::RepositoryServiceClient,
+    smart_http_service_client::SmartHttpServiceClient,
+    GetArchiveRequest, GetBlobRequest, GetSnapshotRequest,
     InfoRefsRequest, PostReceivePackRequest,
-    PostUploadPackWithSidechannelRequest, Repository,
+    PostUploadPackWithSidechannelRequest, RawDiffRequest, RawPatchRequest,
+    Repository,
 };
 
 #[derive(Debug, Clone)]
@@ -32,9 +37,14 @@ pub struct RepoInfo {
     pub relative_path: String,
 }
 
+type Channel = tonic::transport::Channel;
+
 pub struct GitalyClient {
     conn: GitalyConnection,
-    grpc: SmartHttpServiceClient<tonic::transport::Channel>,
+    smart_http: SmartHttpServiceClient<Channel>,
+    repository: RepositoryServiceClient<Channel>,
+    blob: BlobServiceClient<Channel>,
+    diff: DiffServiceClient<Channel>,
     server: GitalyServer,
 }
 
@@ -47,8 +57,25 @@ impl GitalyClient {
             GitalyConnection::connect_tcp(&server.address).await?
         };
 
-        let control = conn.control();
-        let channel = tonic::transport::Endpoint::try_from("http://gitaly.internal")
+        let smart_http = Self::build_channel(conn.control()).await?;
+        let repository = Self::build_channel(conn.control()).await?;
+        let blob = Self::build_channel(conn.control()).await?;
+        let diff = Self::build_channel(conn.control()).await?;
+
+        Ok(Self {
+            conn,
+            smart_http: SmartHttpServiceClient::new(smart_http),
+            repository: RepositoryServiceClient::new(repository),
+            blob: BlobServiceClient::new(blob),
+            diff: DiffServiceClient::new(diff),
+            server: server.clone(),
+        })
+    }
+
+    async fn build_channel(
+        control: Arc<Mutex<yamux::Control>>,
+    ) -> io::Result<Channel> {
+        tonic::transport::Endpoint::try_from("http://gitaly.internal")
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
             .connect_with_connector(tower::service_fn(move |_: tonic::transport::Uri| {
                 let c = control.clone();
@@ -61,15 +88,7 @@ impl GitalyClient {
                 }
             }))
             .await
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-
-        let grpc = SmartHttpServiceClient::new(channel);
-
-        Ok(Self {
-            conn,
-            grpc,
-            server: server.clone(),
-        })
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
     }
 
     fn auth_token(&self) -> tonic::metadata::MetadataValue<tonic::metadata::Ascii> {
@@ -86,16 +105,14 @@ impl GitalyClient {
         }
     }
 
-    pub async fn info_refs_upload_pack(
-        &mut self,
-        repo: &RepoInfo,
-    ) -> Result<Vec<u8>, tonic::Status> {
+    // ── SmartHTTP (git upload/receive pack) ──
+
+    pub async fn info_refs_upload_pack(&mut self, repo: &RepoInfo) -> Result<Vec<u8>, tonic::Status> {
         let mut req = tonic::Request::new(InfoRefsRequest {
             repository: Some(self.build_repo(repo)),
         });
         req.metadata_mut().insert("authorization", self.auth_token());
-
-        let mut stream = self.grpc.info_refs_upload_pack(req).await?.into_inner();
+        let mut stream = self.smart_http.info_refs_upload_pack(req).await?.into_inner();
         let mut data = Vec::new();
         while let Some(chunk) = stream.message().await? {
             data.extend_from_slice(&chunk.data);
@@ -103,16 +120,12 @@ impl GitalyClient {
         Ok(data)
     }
 
-    pub async fn info_refs_receive_pack(
-        &mut self,
-        repo: &RepoInfo,
-    ) -> Result<Vec<u8>, tonic::Status> {
+    pub async fn info_refs_receive_pack(&mut self, repo: &RepoInfo) -> Result<Vec<u8>, tonic::Status> {
         let mut req = tonic::Request::new(InfoRefsRequest {
             repository: Some(self.build_repo(repo)),
         });
         req.metadata_mut().insert("authorization", self.auth_token());
-
-        let mut stream = self.grpc.info_refs_receive_pack(req).await?.into_inner();
+        let mut stream = self.smart_http.info_refs_receive_pack(req).await?.into_inner();
         let mut data = Vec::new();
         while let Some(chunk) = stream.message().await? {
             data.extend_from_slice(&chunk.data);
@@ -125,36 +138,132 @@ impl GitalyClient {
         repo: &RepoInfo,
     ) -> Result<sidechannel::Sidechannel, tonic::Status> {
         let (reg_key, rx) = self.conn.register_sidechannel_waiter().await;
-
         let mut req = tonic::Request::new(PostUploadPackWithSidechannelRequest {
             repository: Some(self.build_repo(repo)),
         });
         req.metadata_mut().insert("authorization", self.auth_token());
-        req.metadata_mut().insert(
-            "gitaly-sidechannel",
-            reg_key.parse().unwrap(),
-        );
-
-        self.grpc.post_upload_pack_with_sidechannel(req).await?;
-
-        rx.await.map_err(|_| {
-            tonic::Status::internal("sidechannel stream was not received from Gitaly")
-        })
+        req.metadata_mut().insert("gitaly-sidechannel", reg_key.parse().unwrap());
+        self.smart_http.post_upload_pack_with_sidechannel(req).await?;
+        rx.await.map_err(|_| tonic::Status::internal("sidechannel stream not received"))
     }
 
-    pub async fn post_receive_pack(
-        &mut self,
-        repo: &RepoInfo,
-        data: Vec<u8>,
-    ) -> Result<Vec<u8>, tonic::Status> {
+    pub async fn post_receive_pack(&mut self, repo: &RepoInfo, data: Vec<u8>) -> Result<Vec<u8>, tonic::Status> {
         let mut req = tonic::Request::new(PostReceivePackRequest {
             repository: Some(self.build_repo(repo)),
             data,
         });
         req.metadata_mut().insert("authorization", self.auth_token());
-
-        let response = self.grpc.post_receive_pack(req).await?;
+        let response = self.smart_http.post_receive_pack(req).await?;
         Ok(response.into_inner().data)
+    }
+
+    // ── RepositoryService (archive, snapshot) ──
+
+    pub async fn get_archive(
+        &mut self,
+        repo: &RepoInfo,
+        commit_id: &str,
+        format: &str,
+        prefix: &str,
+        path: &str,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        let mut req = tonic::Request::new(GetArchiveRequest {
+            repository: Some(self.build_repo(repo)),
+            commit_id: commit_id.to_string(),
+            format: format.to_string(),
+            prefix: prefix.to_string(),
+            path: path.to_string(),
+            ..Default::default()
+        });
+        req.metadata_mut().insert("authorization", self.auth_token());
+        let mut stream = self.repository.get_archive(req).await?.into_inner();
+        let mut data = Vec::new();
+        while let Some(chunk) = stream.message().await? {
+            data.extend_from_slice(&chunk.data);
+        }
+        Ok(data)
+    }
+
+    pub async fn get_snapshot(
+        &mut self,
+        repo: &RepoInfo,
+        commit_id: &str,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        let mut req = tonic::Request::new(GetSnapshotRequest {
+            repository: Some(self.build_repo(repo)),
+            commit_id: commit_id.to_string(),
+        });
+        req.metadata_mut().insert("authorization", self.auth_token());
+        let mut stream = self.repository.get_snapshot(req).await?.into_inner();
+        let mut data = Vec::new();
+        while let Some(chunk) = stream.message().await? {
+            data.extend_from_slice(&chunk.data);
+        }
+        Ok(data)
+    }
+
+    // ── BlobService ──
+
+    pub async fn get_blob(
+        &mut self,
+        repo: &RepoInfo,
+        oid: &str,
+        limit: i64,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        let mut req = tonic::Request::new(GetBlobRequest {
+            repository: Some(self.build_repo(repo)),
+            oid: oid.to_string(),
+            limit,
+        });
+        req.metadata_mut().insert("authorization", self.auth_token());
+        let mut stream = self.blob.get_blob(req).await?.into_inner();
+        let mut data = Vec::new();
+        while let Some(chunk) = stream.message().await? {
+            data.extend_from_slice(&chunk.data);
+        }
+        Ok(data)
+    }
+
+    // ── DiffService ──
+
+    pub async fn raw_diff(
+        &mut self,
+        repo: &RepoInfo,
+        left_commit_id: &str,
+        right_commit_id: &str,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        let mut req = tonic::Request::new(RawDiffRequest {
+            repository: Some(self.build_repo(repo)),
+            left_commit_id: left_commit_id.to_string(),
+            right_commit_id: right_commit_id.to_string(),
+        });
+        req.metadata_mut().insert("authorization", self.auth_token());
+        let mut stream = self.diff.raw_diff(req).await?.into_inner();
+        let mut data = Vec::new();
+        while let Some(chunk) = stream.message().await? {
+            data.extend_from_slice(&chunk.data);
+        }
+        Ok(data)
+    }
+
+    pub async fn raw_patch(
+        &mut self,
+        repo: &RepoInfo,
+        left_commit_id: &str,
+        right_commit_id: &str,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        let mut req = tonic::Request::new(RawPatchRequest {
+            repository: Some(self.build_repo(repo)),
+            left_commit_id: left_commit_id.to_string(),
+            right_commit_id: right_commit_id.to_string(),
+        });
+        req.metadata_mut().insert("authorization", self.auth_token());
+        let mut stream = self.diff.raw_patch(req).await?.into_inner();
+        let mut data = Vec::new();
+        while let Some(chunk) = stream.message().await? {
+            data.extend_from_slice(&chunk.data);
+        }
+        Ok(data)
     }
 }
 

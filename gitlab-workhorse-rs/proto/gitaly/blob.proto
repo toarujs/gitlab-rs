@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package gitaly;
+
+option go_package = "gitlab.com/gitlab-org/gitaly/v16/proto/go/gitalypb";
+
+message GetBlobRequest {
+  Repository repository = 1;
+  string oid = 2;
+  int64 limit = 3;
+}
+
+message GetBlobResponse {
+  int64 size = 1;
+  string oid = 2;
+  bytes data = 3;
+  bool is_binary = 4;
+}
+
+service BlobService {
+  rpc GetBlob(GetBlobRequest) returns (stream GetBlobResponse);
+}

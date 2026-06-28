@@ -256,10 +256,18 @@ fn register_injecters(registry: &senddata::InjecterRegistry) {
                 }),
             }).await;
 
+            // git-format-patch injecter (Gitaly-backed)
+            registry.register(senddata::Injecter {
+                name: "git-format-patch".to_string(),
+                prefix: "send-data:git-format-patch:".to_string(),
+                inject: Arc::new(|json_data: String, _headers: HeaderMap| {
+                    Box::pin(senddata::git_injectors::git_patch_inject(json_data, _headers))
+                }),
+            }).await;
+
             // Register stub injecters for remaining send-data prefixes
             for (name, prefix) in &[
                 ("artifacts-entry", "send-data:artifacts-entry:"),
-                ("git-format-patch", "send-data:git-format-patch:"),
                 ("git-changed-paths", "send-data:git-changed-paths:"),
                 ("git-list-blobs", "send-data:git-list-blobs:"),
                 ("dependency-proxy", "send-data:dependency-proxy:"),

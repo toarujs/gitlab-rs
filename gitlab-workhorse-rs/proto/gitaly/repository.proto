@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package gitaly;
+
+option go_package = "gitlab.com/gitlab-org/gitaly/v16/proto/go/gitalypb";
+
+// Repository is defined in smarthttp.proto (shared across all services in this package)
+
+message GetArchiveRequest {
+  Repository repository = 1;
+  string commit_id = 2;
+  string format = 3;
+  string path = 4;
+  bytes exclude = 5;
+  string prefix = 6;
+  int32 elide_path = 7;
+}
+
+message GetArchiveResponse {
+  bytes data = 1;
+}
+
+message GetSnapshotRequest {
+  Repository repository = 1;
+  string commit_id = 2;
+}
+
+message GetSnapshotResponse {
+  bytes data = 1;
+}
+
+service RepositoryService {
+  rpc GetArchive(GetArchiveRequest) returns (stream GetArchiveResponse);
+  rpc GetSnapshot(GetSnapshotRequest) returns (stream GetSnapshotResponse);
+}
