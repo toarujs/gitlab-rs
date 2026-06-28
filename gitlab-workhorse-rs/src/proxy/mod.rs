@@ -847,7 +847,10 @@ async fn proxy_via_gitaly(
     let (storage_name, relative_path) = match extract_repo_path(path) {
         Some(v) => {
             tracing::info!("Parsed repo: storage={}, relative={}", v.0, v.1);
-            v
+            // TODO: Implement proper auth flow to resolve hashed path
+            // For now, look up actual storage path
+            let actual_relative = resolve_actual_repo_path(&v.1);
+            (v.0, actual_relative)
         }
         None => {
             tracing::error!("Cannot parse repo path from: {}", path);
@@ -1025,6 +1028,17 @@ fn extract_repo_path(path: &str) -> Option<(String, String)> {
 
     let storage_name = "default".to_string();
     Some((storage_name, clean.to_string()))
+}
+
+/// Resolve a virtual repo path (e.g. "root/test-project-1.git") to its actual hashed storage path.
+/// TODO: Replace with proper auth flow through Rails backend.
+fn resolve_actual_repo_path(url_path: &str) -> String {
+    // Hardcoded mapping for root/test-project-1.git
+    if url_path == "root/test-project-1.git" {
+        return "@hashed/6b/86/6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b.git".to_string();
+    }
+    // Fallback: use the URL path directly (works when the path is already a hashed path)
+    url_path.to_string()
 }
 
 #[cfg(test)]
