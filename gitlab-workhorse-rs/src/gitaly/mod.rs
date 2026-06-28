@@ -3,6 +3,8 @@ pub mod sidechannel;
 use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use sidechannel::GitalyConnection;
 
@@ -69,7 +71,11 @@ impl GitalyClient {
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
                 .connect_with_connector(tower::service_fn(move |_: tonic::transport::Uri| {
                     let path = path.clone();
-                    tokio::net::UnixStream::connect(path)
+                    async move {
+                        let stream = tokio::net::UnixStream::connect(path).await
+                            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+                        Ok::<_, io::Error>(hyper_util::rt::TokioIo::new(stream))
+                    }
                 }))
                 .await
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
