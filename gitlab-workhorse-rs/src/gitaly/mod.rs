@@ -168,6 +168,13 @@ impl GitalyClient {
         gl_username: &str,
     ) -> Result<Vec<u8>, tonic::Status> {
         let repo = self.build_repo(repo);
+        tracing::info!(
+            "post_receive_pack: repo={:?}, gl_id={}, gl_username={}, data_len={}",
+            repo,
+            gl_id,
+            gl_username,
+            data.len(),
+        );
         let header = PostReceivePackRequest {
             repository: Some(repo),
             data: vec![],
