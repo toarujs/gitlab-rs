@@ -164,11 +164,16 @@ impl GitalyClient {
         &mut self,
         repo: &RepoInfo,
         data: Vec<u8>,
+        gl_id: i64,
+        gl_username: &str,
     ) -> Result<Vec<u8>, tonic::Status> {
         let repo = self.build_repo(repo);
         let request = PostReceivePackRequest {
             repository: Some(repo),
             data,
+            gl_id,
+            gl_repository: format!("project-1"),
+            gl_username: gl_username.to_string(),
             ..Default::default()
         };
 
