@@ -157,6 +157,10 @@ struct Cli {
     #[arg(long, default_value = "")]
     gitaly_token: Option<String>,
 
+    /// Gitaly callback socket path (for hook validation requests from Gitaly)
+    #[arg(long, default_value = "")]
+    gitaly_callback_socket: Option<String>,
+
     /// Print version and exit
     #[arg(long, default_value_t = false)]
     version: bool,
@@ -767,6 +771,36 @@ async fn main() -> anyhow::Result<()> {
             serve_unix(uds, app).await?;
             return Ok(());
         } else {
+            // Start Gitaly callback socket listener if configured
+            if let Some(ref callback_socket) = cli.gitaly_callback_socket {
+                if !callback_socket.is_empty() {
+                    let callback_socket = callback_socket.clone();
+                    let callback_app = app.clone();
+                    
+                    // Create directory for socket if needed
+                    if let Some(parent) = std::path::Path::new(&callback_socket).parent() {
+                        std::fs::create_dir_all(parent).ok();
+                    }
+                    
+                    // Remove existing socket file
+                    let _ = std::fs::remove_file(&callback_socket);
+                    
+                    tokio::spawn(async move {
+                        match tokio::net::UnixListener::bind(&callback_socket) {
+                            Ok(uds) => {
+                                tracing::info!("Gitaly callback socket listening on {}", callback_socket);
+                                if let Err(e) = serve_unix(uds, callback_app).await {
+                                    tracing::error!("Gitaly callback socket error: {}", e);
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to bind Gitaly callback socket {}: {}", callback_socket, e);
+                            }
+                        }
+                    });
+                }
+            }
+            
             let listener = TcpListener::bind(addr).await?;
             tracing::info!("Listening on {}", addr);
             axum::serve(listener, app).await?;
