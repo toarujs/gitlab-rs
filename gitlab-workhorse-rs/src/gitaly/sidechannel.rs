@@ -82,7 +82,7 @@ impl GitalyConnection {
 
         let reg = registry.clone();
         let c = conn.clone();
-        let task = tokio::spawn(async move {
+        let task = tokio::task::spawn_blocking(move || {
             loop {
                 let maybe_stream = {
                     let mut guard = c.lock().unwrap();
@@ -100,7 +100,7 @@ impl GitalyConnection {
                         }
                         Poll::Pending => None,
                     }
-                };
+                }; // cx dropped here
 
                 if let Some(mut raw_stream) = maybe_stream {
                     let mut key_buf = [0u8; 32];
@@ -123,21 +123,25 @@ impl GitalyConnection {
                             }
                             Poll::Ready(Err(_)) => break,
                             Poll::Pending => {
-                                tokio::task::yield_now().await;
+                                drop(cx);
+                                std::thread::sleep(std::time::Duration::from_millis(5));
                             }
                         }
-                    }
+                    } // cx dropped here
 
                     if read == 32 {
                         let key = String::from_utf8_lossy(&key_buf).to_string();
-                        let mut reg_map = reg.lock().await;
-                        if let Some(tx) = reg_map.remove(&key) {
-                            let _ = tx.send(Sidechannel { stream: raw_stream });
-                        }
+                        let rt = tokio::runtime::Handle::current();
+                        rt.block_on(async {
+                            let mut reg_map = reg.lock().await;
+                            if let Some(tx) = reg_map.remove(&key) {
+                                let _ = tx.send(Sidechannel { stream: raw_stream });
+                            }
+                        });
                     }
+                } else {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
                 }
-
-                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
             }
         });
 

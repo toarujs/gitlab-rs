@@ -75,13 +75,17 @@ impl GitalyClient {
 
     async fn build_channel(conn: &GitalyConnection) -> io::Result<Channel> {
         let stream = conn.open_compat_stream().await?;
+        let stream = std::sync::Arc::new(std::sync::Mutex::new(Some(stream)));
         let chan = tonic::transport::Endpoint::try_from("http://gitaly.internal")
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
-            .connect_with_connector_lazy(tower::service_fn(move |_: tonic::transport::Uri| {
-                let s = std::sync::Mutex::new(Some(stream));
-                async move {
-                    let stream = s.lock().unwrap().take().unwrap();
-                    Ok::<_, io::Error>(hyper_util::rt::TokioIo::new(stream))
+            .connect_with_connector_lazy(tower::service_fn({
+                let stream = stream;
+                move |_: tonic::transport::Uri| {
+                    let s = stream.clone();
+                    async move {
+                        let stream = s.lock().unwrap().take().unwrap();
+                        Ok::<_, io::Error>(hyper_util::rt::TokioIo::new(stream))
+                    }
                 }
             }));
         Ok(chan)
