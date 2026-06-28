@@ -7,6 +7,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use sidechannel::GitalyConnection;
+use prost::Message;
 
 pub mod gitaly {
     tonic::include_proto!("gitaly");
@@ -183,10 +184,19 @@ impl GitalyClient {
             gl_username: gl_username.to_string(),
             ..Default::default()
         };
+
+        let mut header_bytes = vec![];
+        header.encode(&mut header_bytes).unwrap();
+        tracing::info!("header wire bytes (hex): {:02X?}", header_bytes);
+
         let body = PostReceivePackRequest {
-            data,
+            data: data.clone(),
             ..Default::default()
         };
+
+        let mut body_bytes = vec![];
+        body.encode(&mut body_bytes).unwrap();
+        tracing::info!("body wire bytes (hex): {:02X?}", body_bytes);
 
         let stream = tokio_stream::iter(vec![header, body]);
         let mut req = tonic::Request::new(stream);
