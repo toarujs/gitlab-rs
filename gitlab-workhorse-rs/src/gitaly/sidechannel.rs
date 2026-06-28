@@ -6,7 +6,6 @@ use std::task::{Context, Poll};
 use tokio::net::{TcpStream, UnixStream};
 use tokio::sync::{oneshot, Mutex as TokioMutex};
 use tokio_util::compat::{Compat, FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
-use hyper_util::rt::TokioIo;
 
 type RegistryKey = String;
 

@@ -3,8 +3,6 @@ pub mod sidechannel;
 use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 use sidechannel::GitalyConnection;
 
@@ -41,7 +39,7 @@ pub struct RepoInfo {
 type Channel = tonic::transport::Channel;
 
 pub struct GitalyClient {
-    conn: GitalyConnection,
+    sidechannel_conn: GitalyConnection,
     smart_http: SmartHttpServiceClient<Channel>,
     repository: RepositoryServiceClient<Channel>,
     blob: BlobServiceClient<Channel>,
@@ -51,44 +49,46 @@ pub struct GitalyClient {
 
 impl GitalyClient {
     pub async fn connect(server: &GitalyServer) -> io::Result<Self> {
-        let conn = if server.address.starts_with("unix:") {
-            let path = server.address.trim_start_matches("unix:");
-            GitalyConnection::connect_unix(path).await?
-        } else {
-            GitalyConnection::connect_tcp(&server.address).await?
-        };
-
-        let smart_http = Self::build_channel(&conn).await?;
-        let repository = Self::build_channel(&conn).await?;
-        let blob = Self::build_channel(&conn).await?;
-        let diff = Self::build_channel(&conn).await?;
+        let channel = Self::create_grpc_channel(server).await?;
+        let sidechannel_conn = Self::create_sidechannel_conn(server).await?;
 
         Ok(Self {
-            conn,
-            smart_http: SmartHttpServiceClient::new(smart_http),
-            repository: RepositoryServiceClient::new(repository),
-            blob: BlobServiceClient::new(blob),
-            diff: DiffServiceClient::new(diff),
+            sidechannel_conn,
+            smart_http: SmartHttpServiceClient::new(channel.clone()),
+            repository: RepositoryServiceClient::new(channel.clone()),
+            blob: BlobServiceClient::new(channel.clone()),
+            diff: DiffServiceClient::new(channel),
             server: server.clone(),
         })
     }
 
-    async fn build_channel(conn: &GitalyConnection) -> io::Result<Channel> {
-        let stream = conn.open_compat_stream().await?;
-        let stream = std::sync::Arc::new(std::sync::Mutex::new(Some(stream)));
-        let chan = tonic::transport::Endpoint::try_from("http://gitaly.internal")
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
-            .connect_with_connector_lazy(tower::service_fn({
-                let stream = stream;
-                move |_: tonic::transport::Uri| {
-                    let s = stream.clone();
-                    async move {
-                        let stream = s.lock().unwrap().take().unwrap();
-                        Ok::<_, io::Error>(hyper_util::rt::TokioIo::new(stream))
-                    }
-                }
-            }));
-        Ok(chan)
+    async fn create_grpc_channel(server: &GitalyServer) -> io::Result<Channel> {
+        if server.address.starts_with("unix:") {
+            let path = server.address.trim_start_matches("unix:").to_string();
+            tonic::transport::Endpoint::try_from("http://[::1]:1")
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+                .connect_with_connector(tower::service_fn(move |_: tonic::transport::Uri| {
+                    let path = path.clone();
+                    tokio::net::UnixStream::connect(path)
+                }))
+                .await
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+        } else {
+            tonic::transport::Endpoint::try_from(format!("http://{}", server.address))
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+                .connect()
+                .await
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+        }
+    }
+
+    async fn create_sidechannel_conn(server: &GitalyServer) -> io::Result<GitalyConnection> {
+        if server.address.starts_with("unix:") {
+            let path = server.address.trim_start_matches("unix:");
+            GitalyConnection::connect_unix(path).await
+        } else {
+            GitalyConnection::connect_tcp(&server.address).await
+        }
     }
 
     fn auth_token(&self) -> tonic::metadata::MetadataValue<tonic::metadata::Ascii> {
@@ -135,7 +135,7 @@ impl GitalyClient {
         &mut self,
         repo: &RepoInfo,
     ) -> Result<sidechannel::Sidechannel, tonic::Status> {
-        let (reg_key, rx) = self.conn.register_sidechannel_waiter().await;
+        let (reg_key, rx) = self.sidechannel_conn.register_sidechannel_waiter().await;
         let mut req = tonic::Request::new(PostUploadPackWithSidechannelRequest {
             repository: Some(self.build_repo(repo)),
         });
