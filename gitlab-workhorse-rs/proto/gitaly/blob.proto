@@ -4,6 +4,8 @@ package gitaly;
 
 option go_package = "gitlab.com/gitlab-org/gitaly/v16/proto/go/gitalypb";
 
+import "gitaly/smarthttp.proto";
+
 message GetBlobRequest {
   Repository repository = 1;
   string oid = 2;

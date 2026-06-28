@@ -4,7 +4,7 @@ package gitaly;
 
 option go_package = "gitlab.com/gitlab-org/gitaly/v16/proto/go/gitalypb";
 
-// Repository is defined in smarthttp.proto (shared across all services in this package)
+import "gitaly/smarthttp.proto";
 
 message GetArchiveRequest {
   Repository repository = 1;
