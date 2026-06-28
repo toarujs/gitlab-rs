@@ -5,8 +5,9 @@ package gitaly;
 option go_package = "gitlab.com/gitlab-org/gitaly/v16/proto/go/gitalypb";
 
 message Repository {
-  string storage_name = 1;
-  string relative_path = 2;
+  int64 id = 1;
+  string storage_name = 2;
+  string relative_path = 3;
   bool git_object_directory = 4;
   string git_alternate_object_directories = 5;
   bool git_attributes_repository = 7;
