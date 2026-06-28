@@ -999,9 +999,16 @@ fn write_pkt_line(out: &mut Vec<u8>, data: &str) {
 }
 
 /// Extract storage_name and relative_path from a git URL path
-/// e.g., "/root/test-repo.git/git-upload-pack" -> Some(("default", "root/test-repo.git"))
+/// e.g., "/root/test-repo.git/info/refs?service=git-upload-pack" -> Some(("default", "root/test-repo.git"))
 fn extract_repo_path(path: &str) -> Option<(String, String)> {
     let clean = path.trim_start_matches('/');
+
+    let clean = if let Some(pos) = clean.find('?') {
+        &clean[..pos]
+    } else {
+        clean
+    };
+
     let clean = clean
         .trim_end_matches("/info/refs")
         .trim_end_matches("/git-upload-pack")
