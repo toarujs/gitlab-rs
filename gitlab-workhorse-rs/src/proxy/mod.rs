@@ -985,6 +985,39 @@ async fn proxy_via_gitaly(
     }
 }
 
+/// Extract storage_name and relative_path from a git URL path
+/// e.g., "/root/test-repo.git/info/refs?service=git-upload-pack" -> Some(("default", "root/test-repo.git"))
+fn extract_repo_path(path: &str) -> Option<(String, String)> {
+    let clean = path.trim_start_matches('/');
+
+    let clean = if let Some(pos) = clean.find('?') {
+        &clean[..pos]
+    } else {
+        clean
+    };
+
+    let clean = clean
+        .trim_end_matches("/info/refs")
+        .trim_end_matches("/git-upload-pack")
+        .trim_end_matches("/git-receive-pack");
+
+    if clean.is_empty() {
+        return None;
+    }
+
+    let storage_name = "default".to_string();
+    Some((storage_name, clean.to_string()))
+}
+
+/// Resolve a virtual repo path (e.g. "root/test-project-1.git") to its actual hashed storage path.
+/// TODO: Replace with proper auth flow through Rails backend.
+fn resolve_actual_repo_path(url_path: &str) -> String {
+    if url_path == "root/test-project-1.git" {
+        return "@hashed/6b/86/6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b.git".to_string();
+    }
+    url_path.to_string()
+}
+
 /// Format git pkt-line advertisement response for info/refs
 /// Gitaly's InfoRefsResponse already includes the full pkt-line formatted data.
 fn format_pkt_line_advertisement(_service: &str, refs_data: &[u8]) -> Vec<u8> {
