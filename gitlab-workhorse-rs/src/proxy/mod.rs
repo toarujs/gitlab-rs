@@ -964,7 +964,7 @@ async fn proxy_via_gitaly(
             })
             .await;
 
-        match client.post_receive_pack(&repo, body_bytes, 1, "root").await {
+        match client.post_receive_pack(&repo, body_bytes, "1", "root").await {
             Ok(data) => {
                 let mut response_headers = HeaderMap::new();
                 response_headers.insert(

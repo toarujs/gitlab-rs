@@ -41,7 +41,7 @@ message PostUploadPackWithSidechannelResponse {
 message PostReceivePackRequest {
   Repository repository = 1;
   bytes data = 2;
-  int64 gl_id = 3;
+  string gl_id = 3;
   string gl_repository = 4;
   string gl_username = 5;
   string git_protocol = 6;
