@@ -986,59 +986,11 @@ async fn proxy_via_gitaly(
 }
 
 /// Format git pkt-line advertisement response for info/refs
-fn format_pkt_line_advertisement(service: &str, refs_data: &[u8]) -> Vec<u8> {
-    let mut out = Vec::new();
-    // pkt-line header: "# service=git-upload-pack\n"
-    let header = format!("# service={}\n", service);
-    let header_len = header.len() + 4; // +4 for the pkt-line length prefix
-    write_pkt_line(&mut out, &header);
-    // flush-pkt
-    out.extend_from_slice(b"0000");
-    // ref advertisement data (already in pkt-line format from Gitaly)
-    out.extend_from_slice(refs_data);
-    out
-}
-
-fn write_pkt_line(out: &mut Vec<u8>, data: &str) {
-    let len = data.len() + 4; // +4 for hex length prefix
-    let hex = format!("{:04x}", len);
-    out.extend_from_slice(hex.as_bytes());
-    out.extend_from_slice(data.as_bytes());
-}
-
-/// Extract storage_name and relative_path from a git URL path
-/// e.g., "/root/test-repo.git/info/refs?service=git-upload-pack" -> Some(("default", "root/test-repo.git"))
-fn extract_repo_path(path: &str) -> Option<(String, String)> {
-    let clean = path.trim_start_matches('/');
-
-    let clean = if let Some(pos) = clean.find('?') {
-        &clean[..pos]
-    } else {
-        clean
-    };
-
-    let clean = clean
-        .trim_end_matches("/info/refs")
-        .trim_end_matches("/git-upload-pack")
-        .trim_end_matches("/git-receive-pack");
-
-    if clean.is_empty() {
-        return None;
-    }
-
-    let storage_name = "default".to_string();
-    Some((storage_name, clean.to_string()))
-}
-
-/// Resolve a virtual repo path (e.g. "root/test-project-1.git") to its actual hashed storage path.
-/// TODO: Replace with proper auth flow through Rails backend.
-fn resolve_actual_repo_path(url_path: &str) -> String {
-    // Hardcoded mapping for root/test-project-1.git
-    if url_path == "root/test-project-1.git" {
-        return "@hashed/6b/86/6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b.git".to_string();
-    }
-    // Fallback: use the URL path directly (works when the path is already a hashed path)
-    url_path.to_string()
+/// Gitaly's InfoRefsResponse already includes the full pkt-line formatted data.
+fn format_pkt_line_advertisement(_service: &str, refs_data: &[u8]) -> Vec<u8> {
+    // Gitaly already returns properly formatted pkt-line data including the
+    // "# service=..." header and flush-pkt separator.
+    refs_data.to_vec()
 }
 
 #[cfg(test)]
