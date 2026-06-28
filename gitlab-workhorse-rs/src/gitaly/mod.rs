@@ -110,8 +110,6 @@ impl GitalyClient {
             relative_path: repo.relative_path.clone(),
             gl_project_path: "root/test-project-1".to_string(),
             gl_repository: "project-1".to_string(),
-            gl_project_name: "test-project-1".to_string(),
-            gl_project_namespace: "root".to_string(),
             ..Default::default()
         }
     }

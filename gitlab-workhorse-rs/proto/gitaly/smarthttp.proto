@@ -2,19 +2,17 @@ syntax = "proto3";
 
 package gitaly;
 
-option go_package = "gitlab.com/gitlab-org/gitaly/v16/proto/go/gitalypb";
+option go_package = "gitlab.com/gitlab-org/gitaly/v19/proto/go/gitalypb";
 
 message Repository {
-  int64 id = 1;
+  reserved 1;
   string storage_name = 2;
   string relative_path = 3;
-  bool git_object_directory = 4;
-  string git_alternate_object_directories = 5;
-  bool git_attributes_repository = 7;
+  string git_object_directory = 4;
+  repeated string git_alternate_object_directories = 5;
+  string gl_repository = 6;
+  reserved 7;
   string gl_project_path = 8;
-  string gl_repository = 9;
-  string gl_project_name = 10;
-  string gl_project_namespace = 11;
 }
 
 // --- InfoRefs (advertisement phase) ---
