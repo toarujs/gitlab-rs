@@ -19,8 +19,10 @@ use gitaly::{
     repository_service_client::RepositoryServiceClient,
     smart_http_service_client::SmartHttpServiceClient,
     GetArchiveRequest, GetBlobRequest, GetSnapshotRequest,
-    InfoRefsRequest, PostReceivePackRequest,
-    PostUploadPackWithSidechannelRequest, RawDiffRequest, RawPatchRequest,
+    InfoRefsRequest, InfoRefsResponse,
+    PostReceivePackRequest, PostReceivePackResponse,
+    PostUploadPackWithSidechannelRequest,
+    RawDiffRequest, RawPatchRequest,
     Repository,
 };
 
@@ -57,10 +59,10 @@ impl GitalyClient {
             GitalyConnection::connect_tcp(&server.address).await?
         };
 
-        let smart_http = Self::build_channel(conn.control()).await?;
-        let repository = Self::build_channel(conn.control()).await?;
-        let blob = Self::build_channel(conn.control()).await?;
-        let diff = Self::build_channel(conn.control()).await?;
+        let smart_http = Self::build_channel(&conn).await?;
+        let repository = Self::build_channel(&conn).await?;
+        let blob = Self::build_channel(&conn).await?;
+        let diff = Self::build_channel(&conn).await?;
 
         Ok(Self {
             conn,
@@ -72,19 +74,16 @@ impl GitalyClient {
         })
     }
 
-    async fn build_channel(
-        control: Arc<Mutex<yamux::Control>>,
-    ) -> io::Result<Channel> {
+    async fn build_channel(conn: &GitalyConnection) -> io::Result<Channel> {
+        let stream = conn.open_compat_stream().await?;
         tonic::transport::Endpoint::try_from("http://gitaly.internal")
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
             .connect_with_connector(tower::service_fn(move |_: tonic::transport::Uri| {
-                let c = control.clone();
+                // Stream is moved here; each channel gets its own stream
+                let s = std::sync::Mutex::new(Some(stream));
                 async move {
-                    let mut guard = c.lock().await;
-                    let stream = guard.open_stream().await.map_err(|e| {
-                        io::Error::new(io::ErrorKind::Other, e.to_string())
-                    })?;
-                    Ok::<_, io::Error>(stream.compat())
+                    let stream = s.lock().unwrap().take().unwrap();
+                    Ok::<_, io::Error>(stream)
                 }
             }))
             .await
@@ -104,8 +103,6 @@ impl GitalyClient {
             ..Default::default()
         }
     }
-
-    // ── SmartHTTP (git upload/receive pack) ──
 
     pub async fn info_refs_upload_pack(&mut self, repo: &RepoInfo) -> Result<Vec<u8>, tonic::Status> {
         let mut req = tonic::Request::new(InfoRefsRequest {
@@ -142,22 +139,34 @@ impl GitalyClient {
             repository: Some(self.build_repo(repo)),
         });
         req.metadata_mut().insert("authorization", self.auth_token());
-        req.metadata_mut().insert("gitaly-sidechannel", reg_key.parse().unwrap());
+        req.metadata_mut().insert(
+            "gitaly-sidechannel",
+            reg_key.parse().unwrap(),
+        );
         self.smart_http.post_upload_pack_with_sidechannel(req).await?;
         rx.await.map_err(|_| tonic::Status::internal("sidechannel stream not received"))
     }
 
-    pub async fn post_receive_pack(&mut self, repo: &RepoInfo, data: Vec<u8>) -> Result<Vec<u8>, tonic::Status> {
-        let mut req = tonic::Request::new(PostReceivePackRequest {
-            repository: Some(self.build_repo(repo)),
+    pub async fn post_receive_pack(
+        &mut self,
+        repo: &RepoInfo,
+        data: Vec<u8>,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        let repo = self.build_repo(repo);
+        let request = PostReceivePackRequest {
+            repository: Some(repo),
             data,
-        });
-        req.metadata_mut().insert("authorization", self.auth_token());
-        let response = self.smart_http.post_receive_pack(req).await?;
-        Ok(response.into_inner().data)
-    }
+            ..Default::default()
+        };
 
-    // ── RepositoryService (archive, snapshot) ──
+        let stream = tokio_stream::once(request);
+        let mut req = tonic::Request::new(stream);
+        req.metadata_mut().insert("authorization", self.auth_token());
+
+        let response = self.smart_http.post_receive_pack(req).await?;
+        let response_data = response.into_inner().data;
+        Ok(response_data)
+    }
 
     pub async fn get_archive(
         &mut self,
@@ -202,8 +211,6 @@ impl GitalyClient {
         Ok(data)
     }
 
-    // ── BlobService ──
-
     pub async fn get_blob(
         &mut self,
         repo: &RepoInfo,
@@ -223,8 +230,6 @@ impl GitalyClient {
         }
         Ok(data)
     }
-
-    // ── DiffService ──
 
     pub async fn raw_diff(
         &mut self,

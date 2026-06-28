@@ -22,13 +22,14 @@ message InfoRefsRequest {
   Repository repository = 1;
 }
 
+message InfoRefsResponse {
+  bytes data = 1;
+}
+
 // --- PostUploadPackWithSidechannel ---
 
 message PostUploadPackWithSidechannelRequest {
   Repository repository = 1;
-  // NOTE: bytes data = 2 was removed intentionally.
-  // Gitaly interprets this field as git config options, not pack data.
-  // Sidechannel transfers pack data over a separate yamux stream.
 }
 
 message PostUploadPackWithSidechannelResponse {
@@ -39,6 +40,10 @@ message PostUploadPackWithSidechannelResponse {
 message PostReceivePackRequest {
   Repository repository = 1;
   bytes data = 2;
+  int64 gl_id = 3;
+  string gl_repository = 4;
+  string gl_username = 5;
+  string git_protocol = 6;
 }
 
 message PostReceivePackResponse {
@@ -46,8 +51,8 @@ message PostReceivePackResponse {
 }
 
 service SmartHTTPService {
-  rpc InfoRefsUploadPack(InfoRefsRequest) returns (stream PostUploadPackWithSidechannelResponse);
-  rpc InfoRefsReceivePack(InfoRefsRequest) returns (stream PostReceivePackResponse);
+  rpc InfoRefsUploadPack(InfoRefsRequest) returns (stream InfoRefsResponse);
+  rpc InfoRefsReceivePack(InfoRefsRequest) returns (stream InfoRefsResponse);
   rpc PostUploadPackWithSidechannel(PostUploadPackWithSidechannelRequest) returns (PostUploadPackWithSidechannelResponse);
-  rpc PostReceivePack(stream PostReceivePackRequest) returns (stream PostReceivePackResponse);
+  rpc PostReceivePack(stream PostReceivePackRequest) returns (PostReceivePackResponse);
 }

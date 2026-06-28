@@ -907,7 +907,7 @@ async fn proxy_via_gitaly(
         }
     } else if path.ends_with("/git-upload-pack") {
         let body_bytes = body.into_data_stream()
-            .fold(Vec::new(), |mut acc, chunk| {
+            .fold(Vec::new(), |mut acc, chunk| async move {
                 if let Ok(data) = chunk {
                     acc.extend_from_slice(&data);
                 }
@@ -948,7 +948,7 @@ async fn proxy_via_gitaly(
         }
     } else if path.ends_with("/git-receive-pack") {
         let body_bytes = body.into_data_stream()
-            .fold(Vec::new(), |mut acc, chunk| {
+            .fold(Vec::new(), |mut acc, chunk| async move {
                 if let Ok(data) = chunk {
                     acc.extend_from_slice(&data);
                 }
