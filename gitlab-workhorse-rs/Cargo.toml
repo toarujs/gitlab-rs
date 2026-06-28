@@ -88,6 +88,14 @@ image = { version = "0.25", default-features = false, features = ["webp", "png",
 # LRU cache
 moka = { version = "0.12", features = ["future"] }
 
+# gRPC (Gitaly communication)
+tonic = "0.12"
+prost = "0.13"
+tokio-stream = { version = "0.1", features = ["net"] }
+
+[build-dependencies]
+tonic-build = "0.12"
+
 [dev-dependencies]
 tokio-test = "0.4"
 axum-test = "14"

@@ -18,6 +18,7 @@ use tokio_tungstenite::tungstenite::Message;
 use url::Url;
 
 use super::forwardheaders;
+use super::gitaly;
 use super::secret;
 use super::senddata;
 use super::state::AppState;
@@ -287,9 +288,11 @@ pub async fn proxy_request_streaming(
     let metrics = state.metrics.clone();
     let method_str = method.as_str().to_string();
     let path_str = uri.path().to_string();
-    // Check for git URLs FIRST — route to Go sidecar regardless of socket/tcp mode
+    // Check for git URLs FIRST — route to Gitaly or Go sidecar
     let result = if is_git_url(&path_str) {
-        if let Some(ref git_backend) = state.proxy.git_backend_url {
+        if let (Some(ref gitaly_addr), Some(ref gitaly_token)) = (&state.git.gitaly_address, &state.git.gitaly_token) {
+            proxy_via_gitaly(&state, method, uri, headers, body, gitaly_addr, gitaly_token).await
+        } else if let Some(ref git_backend) = state.proxy.git_backend_url {
             proxy_via_git_backend(&state, method, uri, headers, body, git_backend).await
         } else if let Some(ref socket_path) = state.proxy.auth_socket {
             let socket_path = socket_path.clone();
@@ -824,6 +827,125 @@ async fn proxy_via_git_backend(
             }
         }
     }
+}
+
+/// Proxy git request via direct Gitaly gRPC
+async fn proxy_via_gitaly(
+    state: &AppState,
+    method: Method,
+    uri: Uri,
+    _headers: HeaderMap,
+    body: Body,
+    gitaly_addr: &str,
+    gitaly_token: &str,
+) -> Result<Response, StatusCode> {
+    let path = uri.path();
+    let path_and_query = uri.path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or(path);
+
+    tracing::info!("Routing git request to Gitaly directly: {}", path);
+
+    // Parse repository path from URL: /root/test-repo.git/git-upload-pack
+    let repo_path = extract_repo_path(path);
+    let (storage_name, relative_path) = match repo_path {
+        Some((s, r)) => (s, r),
+        None => {
+            tracing::error!("Cannot parse repo path from: {}", path);
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    };
+
+    let server = gitaly::GitalyServer {
+        address: gitaly_addr.to_string(),
+        token: gitaly_token.to_string(),
+        call_metadata: std::collections::HashMap::new(),
+    };
+
+    let mut client = match gitaly::GitalyClient::connect(&server).await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("Failed to connect to Gitaly: {}", e);
+            return Err(StatusCode::BAD_GATEWAY);
+        }
+    };
+
+    if path.ends_with("/info/refs") {
+        // info/refs still needs to go through the sidecar or be handled separately
+        // For now, return a not-implemented for direct Gitaly info/refs
+        tracing::warn!("info/refs via direct Gitaly not yet implemented, falling back to Go sidecar");
+        if let Some(ref git_backend) = state.proxy.git_backend_url {
+            return proxy_via_git_backend(state, method, uri, _headers, body, git_backend).await;
+        }
+        return Err(StatusCode::NOT_IMPLEMENTED);
+    }
+
+    if path.ends_with("/git-upload-pack") {
+        match client.post_upload_pack(&storage_name, &relative_path).await {
+            Ok(data) => {
+                let mut response_headers = HeaderMap::new();
+                response_headers.insert(
+                    "content-type",
+                    "application/x-git-upload-pack-result".parse().unwrap(),
+                );
+                response_headers.insert("cache-control", "no-cache".parse().unwrap());
+                Ok((StatusCode::OK, response_headers, data).into_response())
+            }
+            Err(e) => {
+                tracing::error!("Gitaly post_upload_pack failed: {}", e);
+                Err(StatusCode::BAD_GATEWAY)
+            }
+        }
+    } else if path.ends_with("/git-receive-pack") {
+        let body_bytes = body.into_data_stream()
+            .fold(Vec::new(), |mut acc, chunk| {
+                if let Ok(data) = chunk {
+                    acc.extend_from_slice(&data);
+                }
+                acc
+            })
+            .await;
+
+        match client.post_receive_pack(&storage_name, &relative_path, body_bytes).await {
+            Ok(data) => {
+                let mut response_headers = HeaderMap::new();
+                response_headers.insert(
+                    "content-type",
+                    "application/x-git-receive-pack-result".parse().unwrap(),
+                );
+                response_headers.insert("cache-control", "no-cache".parse().unwrap());
+                Ok((StatusCode::OK, response_headers, data).into_response())
+            }
+            Err(e) => {
+                tracing::error!("Gitaly post_receive_pack failed: {}", e);
+                Err(StatusCode::BAD_GATEWAY)
+            }
+        }
+    } else {
+        tracing::warn!("Unknown git endpoint: {}", path);
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+/// Extract storage_name and relative_path from a git URL path
+/// e.g., "/root/test-repo.git/git-upload-pack" -> Some(("default", "root/test-repo.git"))
+fn extract_repo_path(path: &str) -> Option<(String, String)> {
+    // Remove leading slash and trailing git service path
+    let clean = path.trim_start_matches('/');
+    let clean = clean
+        .trim_end_matches("/info/refs")
+        .trim_end_matches("/git-upload-pack")
+        .trim_end_matches("/git-receive-pack");
+
+    if clean.is_empty() {
+        return None;
+    }
+
+    // GitLab default storage name
+    let storage_name = "default".to_string();
+    let relative_path = clean.to_string();
+
+    Some((storage_name, relative_path))
 }
 
 #[cfg(test)]

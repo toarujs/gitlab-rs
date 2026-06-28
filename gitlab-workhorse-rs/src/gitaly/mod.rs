@@ -1,20 +1,13 @@
-#![allow(dead_code)]
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::path::PathBuf;
+use tonic::transport::{Channel, Endpoint, Uri};
 
-#[derive(Clone)]
-pub struct GitalyConnectionCache {
-    connections: Arc<RwLock<HashMap<String, GitalyConnectionInfo>>>,
+pub mod gitaly {
+    tonic::include_proto!("gitaly");
 }
 
-#[derive(Debug, Clone)]
-pub struct GitalyConnectionInfo {
-    pub address: String,
-    pub token: String,
-    pub connected: bool,
-    pub last_used: std::time::Instant,
-}
+use gitaly::smart_http_service_client::SmartHttpServiceClient;
+use gitaly::{PostUploadPackWithSidechannelRequest, PostReceivePackRequest, Repository};
 
 #[derive(Debug, Clone)]
 pub struct GitalyServer {
@@ -24,74 +17,101 @@ pub struct GitalyServer {
 }
 
 #[derive(Debug, Clone)]
-pub struct SmartHTTPHandler {
-    pub server: GitalyServer,
-    pub repository_storage: String,
-    pub relative_path: String,
+pub struct GitalyClient {
+    client: SmartHttpServiceClient<Channel>,
+    token: String,
 }
 
-impl GitalyConnectionCache {
-    pub fn new() -> Self {
-        Self {
-            connections: Arc::new(RwLock::new(HashMap::new())),
-        }
-    }
-
-    pub async fn get_or_create(&self, address: &str, token: &str) -> GitalyConnectionInfo {
-        let mut guard = self.connections.write().await;
-
-        if let Some(info) = guard.get(address) {
-            let mut updated = info.clone();
-            updated.last_used = std::time::Instant::now();
-            guard.insert(address.to_string(), updated.clone());
-            return updated;
-        }
-
-        let info = GitalyConnectionInfo {
-            address: address.to_string(),
-            token: token.to_string(),
-            connected: true,
-            last_used: std::time::Instant::now(),
+impl GitalyClient {
+    pub async fn connect(server: &GitalyServer) -> Result<Self, tonic::Status> {
+        let channel = if server.address.starts_with("unix:") {
+            let path = server.address.trim_start_matches("unix:");
+            Endpoint::try_from("http://[::1]:0")
+                .map_err(|e| tonic::Status::internal(format!("endpoint error: {}", e)))?
+                .connect_with_connector(tower::service_fn(move |_: Uri| {
+                    let path = path.to_string();
+                    async move {
+                        tokio::net::UnixStream::connect(path).await
+                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+                    }
+                }))
+                .await
+                .map_err(|e| tonic::Status::internal(format!("unix connect error: {}", e)))?
+        } else {
+            let uri = if server.address.contains("://") {
+                server.address.clone()
+            } else {
+                format!("http://{}", server.address)
+            };
+            Channel::from_shared(uri)
+                .map_err(|e| tonic::Status::internal(format!("channel error: {}", e)))?
+                .connect()
+                .await
+                .map_err(|e| tonic::Status::internal(format!("tcp connect error: {}", e)))?
         };
 
-        guard.insert(address.to_string(), info.clone());
-        info
+        let client = SmartHttpServiceClient::new(channel);
+
+        Ok(Self {
+            client,
+            token: server.token.clone(),
+        })
     }
 
-    pub async fn remove(&self, address: &str) {
-        let mut guard = self.connections.write().await;
-        guard.remove(address);
+    fn build_request<T>(&self, mut msg: T) -> tonic::Request<T> {
+        let mut req = tonic::Request::new(msg);
+        req.metadata_mut().insert(
+            "authorization",
+            format!("Bearer {}", self.token).parse().unwrap(),
+        );
+        req
     }
 
-    pub async fn len(&self) -> usize {
-        self.connections.read().await.len()
+    pub async fn post_upload_pack(
+        &mut self,
+        storage_name: &str,
+        relative_path: &str,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        let repo = Repository {
+            storage_name: storage_name.to_string(),
+            relative_path: relative_path.to_string(),
+            ..Default::default()
+        };
+        let request = PostUploadPackWithSidechannelRequest {
+            repository: Some(repo),
+        };
+        let response = self.client
+            .post_upload_pack_with_sidechannel(self.build_request(request))
+            .await?;
+        Ok(response.into_inner().data)
     }
-}
 
-impl Default for GitalyConnectionCache {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl SmartHTTPHandler {
-    pub fn new(server: GitalyServer, repository_storage: String, relative_path: String) -> Self {
-        Self {
-            server,
-            repository_storage,
-            relative_path,
-        }
-    }
-
-    pub fn service_name(&self) -> String {
-        format!(
-            "gitaly://{}/{}",
-            self.server.address, self.relative_path
-        )
+    pub async fn post_receive_pack(
+        &mut self,
+        storage_name: &str,
+        relative_path: &str,
+        data: Vec<u8>,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        let repo = Repository {
+            storage_name: storage_name.to_string(),
+            relative_path: relative_path.to_string(),
+            ..Default::default()
+        };
+        let request = PostReceivePackRequest {
+            repository: Some(repo),
+            data,
+        };
+        let response = self.client
+            .post_receive_pack(self.build_request(request))
+            .await?;
+        Ok(response.into_inner().data)
     }
 }
 
 pub fn parse_gitaly_address(address: &str) -> Option<(String, u16)> {
+    if address.starts_with("unix:") {
+        return Some((address.to_string(), 0));
+    }
     let parts: Vec<&str> = address.rsplitn(2, ':').collect();
     if parts.len() == 2 {
         let host = parts[1].to_string();
@@ -99,9 +119,20 @@ pub fn parse_gitaly_address(address: &str) -> Option<(String, u16)> {
             return Some((host, port));
         }
     }
+    Some((address.to_string(), 8075))
+}
 
-    let host = address.to_string();
-    Some((host, 8075))
+pub fn resolve_repo_path(gitaly_repo: &Repository) -> Result<PathBuf, std::io::Error> {
+    let relative = &gitaly_repo.relative_path;
+    let default_path = format!("/var/opt/gitlab/git-data/repositories/{}", relative);
+    let repo_path = PathBuf::from(&default_path);
+    if repo_path.exists() {
+        return Ok(repo_path);
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        format!("repository not found: {}", default_path),
+    ))
 }
 
 #[cfg(test)]
@@ -118,44 +149,20 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_gitaly_address_unix() {
+        let result = parse_gitaly_address("unix:/var/opt/gitlab/gitaly/gitaly.socket");
+        assert!(result.is_some());
+        let (path, port) = result.unwrap();
+        assert_eq!(path, "unix:/var/opt/gitlab/gitaly/gitaly.socket");
+        assert_eq!(port, 0);
+    }
+
+    #[test]
     fn test_parse_gitaly_address_default_port() {
         let result = parse_gitaly_address("gitaly.internal");
         assert!(result.is_some());
         let (host, port) = result.unwrap();
         assert_eq!(host, "gitaly.internal");
         assert_eq!(port, 8075);
-    }
-
-    #[tokio::test]
-    async fn test_connection_cache() {
-        let cache = GitalyConnectionCache::new();
-        assert_eq!(cache.len().await, 0);
-
-        let info = cache.get_or_create("localhost:8075", "token123").await;
-        assert!(info.connected);
-        assert_eq!(cache.len().await, 1);
-
-        let info2 = cache.get_or_create("localhost:8075", "token456").await;
-        assert!(info.connected);
-        assert!(info2.connected);
-        assert_eq!(cache.len().await, 1);
-    }
-
-    #[test]
-    fn test_smart_http_handler() {
-        let server = GitalyServer {
-            address: "localhost:8075".to_string(),
-            token: "secret".to_string(),
-            call_metadata: HashMap::new(),
-        };
-
-        let handler = SmartHTTPHandler::new(
-            server,
-            "default".to_string(),
-            "@hashed/aa/bb.git".to_string(),
-        );
-
-        assert!(handler.service_name().contains("gitaly://"));
-        assert!(handler.service_name().contains("localhost:8075"));
     }
 }

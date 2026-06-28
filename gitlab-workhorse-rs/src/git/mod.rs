@@ -16,6 +16,7 @@ use super::state::AppState;
 pub struct GitState {
     pub repository_root: PathBuf,
     pub gitaly_address: Option<String>,
+    pub gitaly_token: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

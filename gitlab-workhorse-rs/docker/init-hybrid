@@ -1,35 +1,49 @@
 #!/bin/bash
 # Hybrid deployment script for GitLab Workhorse
-# Starts Go workhorse as gitaly sidecar, Rust workhorse as main proxy
+# Supports two modes:
+#   1. Go sidecar mode (default): Go workhorse handles Gitaly gRPC
+#   2. Direct Gitaly mode: Rust workhorse connects to Gitaly directly via gRPC
 set -e
 
 RAILS_SOCKET="/var/opt/gitlab/gitlab-rails/sockets/gitlab.socket"
 SECRET_PATH="/opt/gitlab/embedded/service/gitlab-rails/.gitlab_workhorse_secret"
 DOC_ROOT="/opt/gitlab/embedded/service/gitlab-rails/public"
 
+# Gitaly direct connection (optional)
+GITALY_ADDR="${GITALY_ADDR:-}"        # e.g., unix:/var/opt/gitlab/gitaly/gitaly.socket
+GITALY_TOKEN="${GITALY_TOKEN:-}"
+
 # Stop nginx
 kill "$(cat /var/run/nginx.pid 2>/dev/null)" 2>/dev/null || true
 
-# Stop any existing Go workhorse
-pkill -f "gitlab-workhorse.*-listenAddr" 2>/dev/null || true
-sleep 1
-
-# Start Go workhorse on port 8080 for Gitaly git operations
-echo "[init] Starting Go workhorse sidecar on :8080"
-/opt/gitlab/embedded/bin/gitlab-workhorse-go \
-    -authSocket "$RAILS_SOCKET" \
-    -listenAddr :8080 \
-    -documentRoot "$DOC_ROOT" \
-    -secretPath "$SECRET_PATH" &
-GO_PID=$!
-echo "[init] Go sidecar PID: $GO_PID"
-
-# Start Rust workhorse as main entry point on port 80
-echo "[init] Starting Rust workhorse on :80"
-exec /opt/gitlab/embedded/bin/gitlab-workhorse-rs \
-    --auth-socket "$RAILS_SOCKET" \
-    --listen-addr "0.0.0.0:80" \
-    --listen-network tcp \
-    --secret-path "$SECRET_PATH" \
-    --git-backend "http://127.0.0.1:8080" \
+# Build Rust workhorse args
+RUST_ARGS=(
+    --listen-addr "0.0.0.0:80"
+    --listen-network tcp
+    --secret-path "$SECRET_PATH"
     --document-root "$DOC_ROOT"
+    --log-format json
+)
+
+if [ -n "$GITALY_ADDR" ] && [ -n "$GITALY_TOKEN" ]; then
+    # Direct Gitaly mode: Rust connects to Gitaly via gRPC
+    echo "[init] Direct Gitaly mode: $GITALY_ADDR"
+    RUST_ARGS+=(--gitaly-addr "$GITALY_ADDR" --gitaly-token "$GITALY_TOKEN")
+else
+    # Go sidecar mode
+    pkill -f "gitlab-workhorse.*-listenAddr" 2>/dev/null || true
+    sleep 1
+
+    echo "[init] Starting Go workhorse sidecar on :8080"
+    /opt/gitlab/embedded/bin/gitlab-workhorse-go \
+        -authSocket "$RAILS_SOCKET" \
+        -listenAddr :8080 \
+        -documentRoot "$DOC_ROOT" \
+        -secretPath "$SECRET_PATH" &
+    GO_PID=$!
+    echo "[init] Go sidecar PID: $GO_PID"
+    RUST_ARGS+=(--auth-socket "$RAILS_SOCKET" --git-backend "http://127.0.0.1:8080")
+fi
+
+echo "[init] Starting Rust workhorse on :80"
+exec /opt/gitlab/embedded/bin/gitlab-workhorse-rs "${RUST_ARGS[@]}"

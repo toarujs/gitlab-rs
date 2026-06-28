@@ -149,6 +149,14 @@ struct Cli {
     #[arg(long, default_value = "")]
     git_backend: Option<String>,
 
+    /// Gitaly address for direct gRPC (e.g., unix:/var/opt/gitlab/gitaly/gitaly.socket or localhost:8075)
+    #[arg(long, default_value = "")]
+    gitaly_addr: Option<String>,
+
+    /// Gitaly auth token
+    #[arg(long, default_value = "")]
+    gitaly_token: Option<String>,
+
     /// Print version and exit
     #[arg(long, default_value_t = false)]
     version: bool,
@@ -388,7 +396,8 @@ async fn main() -> anyhow::Result<()> {
         },
         git: git::GitState {
             repository_root: std::path::PathBuf::from("/var/opt/gitlab/git-data/repositories"),
-            gitaly_address: None,
+            gitaly_address: cli.gitaly_addr.filter(|s| !s.is_empty()),
+            gitaly_token: cli.gitaly_token.filter(|s| !s.is_empty()),
         },
         health: health::HealthState::new(
             toml_config
