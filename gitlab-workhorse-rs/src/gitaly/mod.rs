@@ -169,7 +169,7 @@ impl GitalyClient {
     ) -> Result<Vec<u8>, tonic::Status> {
         let repo = self.build_repo(repo);
         let header = PostReceivePackRequest {
-            repository: Some(repo.clone()),
+            repository: Some(repo),
             data: vec![],
             gl_id: gl_id.to_string(),
             gl_repository: "project-1".to_string(),
@@ -177,7 +177,6 @@ impl GitalyClient {
             ..Default::default()
         };
         let body = PostReceivePackRequest {
-            repository: Some(repo),
             data,
             ..Default::default()
         };
