@@ -845,7 +845,10 @@ async fn proxy_via_gitaly(
     tracing::info!("Routing git request to Gitaly: {}?{}", path, query);
 
     let (storage_name, relative_path) = match extract_repo_path(path) {
-        Some(v) => v,
+        Some(v) => {
+            tracing::info!("Parsed repo: storage={}, relative={}", v.0, v.1);
+            v
+        }
         None => {
             tracing::error!("Cannot parse repo path from: {}", path);
             return Err(StatusCode::BAD_REQUEST);
@@ -856,6 +859,8 @@ async fn proxy_via_gitaly(
         storage_name,
         relative_path,
     };
+
+    tracing::info!("Connecting to Gitaly at {} with token len={}", gitaly_addr, gitaly_token.len());
 
     let server = gitaly::GitalyServer {
         address: gitaly_addr.to_string(),

@@ -112,8 +112,14 @@ impl GitalyClient {
     }
 
     pub async fn info_refs_upload_pack(&mut self, repo: &RepoInfo) -> Result<Vec<u8>, tonic::Status> {
+        let repository = self.build_repo(repo);
+        tracing::info!(
+            "Gitaly info_refs_upload_pack: storage={:?}, relative={:?}",
+            repository.storage_name,
+            repository.relative_path,
+        );
         let mut req = tonic::Request::new(InfoRefsRequest {
-            repository: Some(self.build_repo(repo)),
+            repository: Some(repository),
         });
         req.metadata_mut().insert("authorization", self.auth_token());
         let mut stream = self.smart_http.info_refs_upload_pack(req).await?.into_inner();
