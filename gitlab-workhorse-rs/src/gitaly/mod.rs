@@ -1,13 +1,23 @@
+pub mod sidechannel;
+
 use std::collections::HashMap;
+use std::io;
 use std::path::PathBuf;
-use tonic::transport::{Channel, Endpoint, Uri};
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tokio_util::compat::FuturesAsyncReadCompatExt;
+
+use sidechannel::GitalyConnection;
 
 pub mod gitaly {
     tonic::include_proto!("gitaly");
 }
 
 use gitaly::smart_http_service_client::SmartHttpServiceClient;
-use gitaly::{PostUploadPackWithSidechannelRequest, PostReceivePackRequest, Repository};
+use gitaly::{
+    InfoRefsRequest, PostReceivePackRequest,
+    PostUploadPackWithSidechannelRequest, Repository,
+};
 
 #[derive(Debug, Clone)]
 pub struct GitalyServer {
@@ -17,94 +27,165 @@ pub struct GitalyServer {
 }
 
 #[derive(Debug, Clone)]
+pub struct RepoInfo {
+    pub storage_name: String,
+    pub relative_path: String,
+}
+
 pub struct GitalyClient {
-    client: SmartHttpServiceClient<Channel>,
-    token: String,
+    conn: GitalyConnection,
+    grpc: SmartHttpServiceClient<tonic::transport::Channel>,
+    server: GitalyServer,
 }
 
 impl GitalyClient {
-    pub async fn connect(server: &GitalyServer) -> Result<Self, tonic::Status> {
-        let channel = if server.address.starts_with("unix:") {
+    pub async fn connect(server: &GitalyServer) -> io::Result<Self> {
+        let conn = if server.address.starts_with("unix:") {
             let path = server.address.trim_start_matches("unix:");
-            Endpoint::try_from("http://[::1]:0")
-                .map_err(|e| tonic::Status::internal(format!("endpoint error: {}", e)))?
-                .connect_with_connector(tower::service_fn(move |_: Uri| {
-                    let path = path.to_string();
-                    async move {
-                        tokio::net::UnixStream::connect(path).await
-                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
-                    }
-                }))
-                .await
-                .map_err(|e| tonic::Status::internal(format!("unix connect error: {}", e)))?
+            GitalyConnection::connect_unix(path).await?
         } else {
-            let uri = if server.address.contains("://") {
-                server.address.clone()
-            } else {
-                format!("http://{}", server.address)
-            };
-            Channel::from_shared(uri)
-                .map_err(|e| tonic::Status::internal(format!("channel error: {}", e)))?
-                .connect()
-                .await
-                .map_err(|e| tonic::Status::internal(format!("tcp connect error: {}", e)))?
+            GitalyConnection::connect_tcp(&server.address).await?
         };
 
-        let client = SmartHttpServiceClient::new(channel);
+        let control = conn.control();
+        let channel = tonic::transport::Endpoint::try_from("http://gitaly.internal")
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+            .connect_with_connector(tower::service_fn(move |_: tonic::transport::Uri| {
+                let c = control.clone();
+                async move {
+                    let mut guard = c.lock().await;
+                    let stream = guard.open_stream().await.map_err(|e| {
+                        io::Error::new(io::ErrorKind::Other, e.to_string())
+                    })?;
+                    Ok::<_, io::Error>(stream.compat())
+                }
+            }))
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+
+        let grpc = SmartHttpServiceClient::new(channel);
 
         Ok(Self {
-            client,
-            token: server.token.clone(),
+            conn,
+            grpc,
+            server: server.clone(),
         })
     }
 
-    fn build_request<T>(&self, mut msg: T) -> tonic::Request<T> {
-        let mut req = tonic::Request::new(msg);
-        req.metadata_mut().insert(
-            "authorization",
-            format!("Bearer {}", self.token).parse().unwrap(),
-        );
-        req
+    fn auth_token(&self) -> tonic::metadata::MetadataValue<tonic::metadata::Ascii> {
+        format!("Bearer {}", self.server.token)
+            .parse()
+            .unwrap()
     }
 
-    pub async fn post_upload_pack(
-        &mut self,
-        storage_name: &str,
-        relative_path: &str,
-    ) -> Result<Vec<u8>, tonic::Status> {
-        let repo = Repository {
-            storage_name: storage_name.to_string(),
-            relative_path: relative_path.to_string(),
+    fn build_repo(&self, repo: &RepoInfo) -> Repository {
+        Repository {
+            storage_name: repo.storage_name.clone(),
+            relative_path: repo.relative_path.clone(),
             ..Default::default()
-        };
-        let request = PostUploadPackWithSidechannelRequest {
-            repository: Some(repo),
-        };
-        let response = self.client
-            .post_upload_pack_with_sidechannel(self.build_request(request))
-            .await?;
-        Ok(response.into_inner().data)
+        }
+    }
+
+    pub async fn info_refs_upload_pack(
+        &mut self,
+        repo: &RepoInfo,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        let mut req = tonic::Request::new(InfoRefsRequest {
+            repository: Some(self.build_repo(repo)),
+        });
+        req.metadata_mut().insert("authorization", self.auth_token());
+
+        let mut stream = self.grpc.info_refs_upload_pack(req).await?.into_inner();
+        let mut data = Vec::new();
+        while let Some(chunk) = stream.message().await? {
+            data.extend_from_slice(&chunk.data);
+        }
+        Ok(data)
+    }
+
+    pub async fn info_refs_receive_pack(
+        &mut self,
+        repo: &RepoInfo,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        let mut req = tonic::Request::new(InfoRefsRequest {
+            repository: Some(self.build_repo(repo)),
+        });
+        req.metadata_mut().insert("authorization", self.auth_token());
+
+        let mut stream = self.grpc.info_refs_receive_pack(req).await?.into_inner();
+        let mut data = Vec::new();
+        while let Some(chunk) = stream.message().await? {
+            data.extend_from_slice(&chunk.data);
+        }
+        Ok(data)
+    }
+
+    pub async fn post_upload_pack_with_sidechannel(
+        &mut self,
+        repo: &RepoInfo,
+    ) -> Result<sidechannel::Sidechannel, tonic::Status> {
+        let (reg_key, rx) = self.conn.register_sidechannel_waiter().await;
+
+        let mut req = tonic::Request::new(PostUploadPackWithSidechannelRequest {
+            repository: Some(self.build_repo(repo)),
+        });
+        req.metadata_mut().insert("authorization", self.auth_token());
+        req.metadata_mut().insert(
+            "gitaly-sidechannel",
+            reg_key.parse().unwrap(),
+        );
+
+        self.grpc.post_upload_pack_with_sidechannel(req).await?;
+
+        rx.await.map_err(|_| {
+            tonic::Status::internal("sidechannel stream was not received from Gitaly")
+        })
     }
 
     pub async fn post_receive_pack(
         &mut self,
-        storage_name: &str,
-        relative_path: &str,
+        repo: &RepoInfo,
         data: Vec<u8>,
     ) -> Result<Vec<u8>, tonic::Status> {
-        let repo = Repository {
-            storage_name: storage_name.to_string(),
-            relative_path: relative_path.to_string(),
-            ..Default::default()
-        };
-        let request = PostReceivePackRequest {
-            repository: Some(repo),
+        let mut req = tonic::Request::new(PostReceivePackRequest {
+            repository: Some(self.build_repo(repo)),
             data,
-        };
-        let response = self.client
-            .post_receive_pack(self.build_request(request))
-            .await?;
+        });
+        req.metadata_mut().insert("authorization", self.auth_token());
+
+        let response = self.grpc.post_receive_pack(req).await?;
         Ok(response.into_inner().data)
+    }
+}
+
+pub struct GitalyPool {
+    clients: Arc<Mutex<HashMap<String, Arc<Mutex<GitalyClient>>>>>,
+    server: GitalyServer,
+}
+
+impl GitalyPool {
+    pub fn new(server: GitalyServer) -> Self {
+        Self {
+            clients: Arc::new(Mutex::new(HashMap::new())),
+            server,
+        }
+    }
+
+    pub async fn get(&self) -> io::Result<Arc<Mutex<GitalyClient>>> {
+        let key = self.server.address.clone();
+        let mut map = self.clients.lock().await;
+        if let Some(client) = map.get(&key) {
+            return Ok(client.clone());
+        }
+        let client = GitalyClient::connect(&self.server).await?;
+        let client = Arc::new(Mutex::new(client));
+        map.insert(key, client.clone());
+        Ok(client)
+    }
+
+    pub async fn remove(&self) {
+        let key = self.server.address.clone();
+        self.clients.lock().await.remove(&key);
     }
 }
 
@@ -141,27 +222,21 @@ mod tests {
 
     #[test]
     fn test_parse_gitaly_address() {
-        let result = parse_gitaly_address("localhost:8075");
-        assert!(result.is_some());
-        let (host, port) = result.unwrap();
+        let (host, port) = parse_gitaly_address("localhost:8075").unwrap();
         assert_eq!(host, "localhost");
         assert_eq!(port, 8075);
     }
 
     #[test]
     fn test_parse_gitaly_address_unix() {
-        let result = parse_gitaly_address("unix:/var/opt/gitlab/gitaly/gitaly.socket");
-        assert!(result.is_some());
-        let (path, port) = result.unwrap();
+        let (path, port) = parse_gitaly_address("unix:/var/opt/gitlab/gitaly/gitaly.socket").unwrap();
         assert_eq!(path, "unix:/var/opt/gitlab/gitaly/gitaly.socket");
         assert_eq!(port, 0);
     }
 
     #[test]
     fn test_parse_gitaly_address_default_port() {
-        let result = parse_gitaly_address("gitaly.internal");
-        assert!(result.is_some());
-        let (host, port) = result.unwrap();
+        let (host, port) = parse_gitaly_address("gitaly.internal").unwrap();
         assert_eq!(host, "gitaly.internal");
         assert_eq!(port, 8075);
     }

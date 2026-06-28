@@ -93,6 +93,9 @@ tonic = "0.12"
 prost = "0.13"
 tokio-stream = { version = "0.1", features = ["net"] }
 
+# Yamux multiplexing (for Gitaly sidechannel)
+yamux = "0.12"
+
 [build-dependencies]
 tonic-build = "0.12"
 

@@ -829,7 +829,7 @@ async fn proxy_via_git_backend(
     }
 }
 
-/// Proxy git request via direct Gitaly gRPC
+/// Proxy git request via direct Gitaly gRPC with sidechannel support
 async fn proxy_via_gitaly(
     state: &AppState,
     method: Method,
@@ -840,20 +840,21 @@ async fn proxy_via_gitaly(
     gitaly_token: &str,
 ) -> Result<Response, StatusCode> {
     let path = uri.path();
-    let path_and_query = uri.path_and_query()
-        .map(|pq| pq.as_str())
-        .unwrap_or(path);
+    let query = uri.query().unwrap_or("");
 
-    tracing::info!("Routing git request to Gitaly directly: {}", path);
+    tracing::info!("Routing git request to Gitaly: {}?{}", path, query);
 
-    // Parse repository path from URL: /root/test-repo.git/git-upload-pack
-    let repo_path = extract_repo_path(path);
-    let (storage_name, relative_path) = match repo_path {
-        Some((s, r)) => (s, r),
+    let (storage_name, relative_path) = match extract_repo_path(path) {
+        Some(v) => v,
         None => {
             tracing::error!("Cannot parse repo path from: {}", path);
             return Err(StatusCode::BAD_REQUEST);
         }
+    };
+
+    let repo = gitaly::RepoInfo {
+        storage_name,
+        relative_path,
     };
 
     let server = gitaly::GitalyServer {
@@ -871,25 +872,74 @@ async fn proxy_via_gitaly(
     };
 
     if path.ends_with("/info/refs") {
-        // info/refs still needs to go through the sidecar or be handled separately
-        // For now, return a not-implemented for direct Gitaly info/refs
-        tracing::warn!("info/refs via direct Gitaly not yet implemented, falling back to Go sidecar");
-        if let Some(ref git_backend) = state.proxy.git_backend_url {
-            return proxy_via_git_backend(state, method, uri, _headers, body, git_backend).await;
-        }
-        return Err(StatusCode::NOT_IMPLEMENTED);
-    }
+        let service = if query.contains("git-upload-pack") {
+            "git-upload-pack"
+        } else if query.contains("git-receive-pack") {
+            "git-receive-pack"
+        } else {
+            tracing::warn!("Unknown git service in info/refs query: {}", query);
+            return Err(StatusCode::BAD_REQUEST);
+        };
 
-    if path.ends_with("/git-upload-pack") {
-        match client.post_upload_pack(&storage_name, &relative_path).await {
-            Ok(data) => {
+        let result = if service == "git-upload-pack" {
+            client.info_refs_upload_pack(&repo).await
+        } else {
+            client.info_refs_receive_pack(&repo).await
+        };
+
+        match result {
+            Ok(refs_data) => {
+                let advertisement = format_pkt_line_advertisement(service, &refs_data);
+                let content_type = if service == "git-upload-pack" {
+                    "application/x-git-upload-pack-advertisement"
+                } else {
+                    "application/x-git-receive-pack-advertisement"
+                };
+                let mut response_headers = HeaderMap::new();
+                response_headers.insert("content-type", content_type.parse().unwrap());
+                response_headers.insert("cache-control", "no-cache".parse().unwrap());
+                Ok((StatusCode::OK, response_headers, advertisement).into_response())
+            }
+            Err(e) => {
+                tracing::error!("Gitaly info_refs failed: {}", e);
+                Err(StatusCode::BAD_GATEWAY)
+            }
+        }
+    } else if path.ends_with("/git-upload-pack") {
+        let body_bytes = body.into_data_stream()
+            .fold(Vec::new(), |mut acc, chunk| {
+                if let Ok(data) = chunk {
+                    acc.extend_from_slice(&data);
+                }
+                acc
+            })
+            .await;
+
+        match client.post_upload_pack_with_sidechannel(&repo).await {
+            Ok(mut sidechannel) => {
+                // Write git protocol data (wants, negotiation) to sidechannel
+                if let Err(e) = sidechannel.write_all(&body_bytes).await {
+                    tracing::error!("sidechannel write failed: {}", e);
+                    return Err(StatusCode::BAD_GATEWAY);
+                }
+                if let Err(e) = sidechannel.shutdown().await {
+                    tracing::error!("sidechannel shutdown failed: {}", e);
+                }
+
+                // Read pack data from sidechannel
+                let mut pack_data = Vec::new();
+                if let Err(e) = sidechannel.read_to_end(&mut pack_data).await {
+                    tracing::error!("sidechannel read failed: {}", e);
+                    return Err(StatusCode::BAD_GATEWAY);
+                }
+
                 let mut response_headers = HeaderMap::new();
                 response_headers.insert(
                     "content-type",
                     "application/x-git-upload-pack-result".parse().unwrap(),
                 );
                 response_headers.insert("cache-control", "no-cache".parse().unwrap());
-                Ok((StatusCode::OK, response_headers, data).into_response())
+                Ok((StatusCode::OK, response_headers, pack_data).into_response())
             }
             Err(e) => {
                 tracing::error!("Gitaly post_upload_pack failed: {}", e);
@@ -906,7 +956,7 @@ async fn proxy_via_gitaly(
             })
             .await;
 
-        match client.post_receive_pack(&storage_name, &relative_path, body_bytes).await {
+        match client.post_receive_pack(&repo, body_bytes).await {
             Ok(data) => {
                 let mut response_headers = HeaderMap::new();
                 response_headers.insert(
@@ -927,10 +977,30 @@ async fn proxy_via_gitaly(
     }
 }
 
+/// Format git pkt-line advertisement response for info/refs
+fn format_pkt_line_advertisement(service: &str, refs_data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    // pkt-line header: "# service=git-upload-pack\n"
+    let header = format!("# service={}\n", service);
+    let header_len = header.len() + 4; // +4 for the pkt-line length prefix
+    write_pkt_line(&mut out, &header);
+    // flush-pkt
+    out.extend_from_slice(b"0000");
+    // ref advertisement data (already in pkt-line format from Gitaly)
+    out.extend_from_slice(refs_data);
+    out
+}
+
+fn write_pkt_line(out: &mut Vec<u8>, data: &str) {
+    let len = data.len() + 4; // +4 for hex length prefix
+    let hex = format!("{:04x}", len);
+    out.extend_from_slice(hex.as_bytes());
+    out.extend_from_slice(data.as_bytes());
+}
+
 /// Extract storage_name and relative_path from a git URL path
 /// e.g., "/root/test-repo.git/git-upload-pack" -> Some(("default", "root/test-repo.git"))
 fn extract_repo_path(path: &str) -> Option<(String, String)> {
-    // Remove leading slash and trailing git service path
     let clean = path.trim_start_matches('/');
     let clean = clean
         .trim_end_matches("/info/refs")
@@ -941,11 +1011,8 @@ fn extract_repo_path(path: &str) -> Option<(String, String)> {
         return None;
     }
 
-    // GitLab default storage name
     let storage_name = "default".to_string();
-    let relative_path = clean.to_string();
-
-    Some((storage_name, relative_path))
+    Some((storage_name, clean.to_string()))
 }
 
 #[cfg(test)]

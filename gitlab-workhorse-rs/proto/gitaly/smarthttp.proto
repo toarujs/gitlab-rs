@@ -16,16 +16,25 @@ message Repository {
   string gl_project_namespace = 11;
 }
 
+// --- InfoRefs (advertisement phase) ---
+
+message InfoRefsRequest {
+  Repository repository = 1;
+}
+
+// --- PostUploadPackWithSidechannel ---
+
 message PostUploadPackWithSidechannelRequest {
   Repository repository = 1;
   // NOTE: bytes data = 2 was removed intentionally.
   // Gitaly interprets this field as git config options, not pack data.
-  // Sidechannel protocol transfers pack data over a separate TCP connection.
+  // Sidechannel transfers pack data over a separate yamux stream.
 }
 
 message PostUploadPackWithSidechannelResponse {
-  bytes data = 1;
 }
+
+// --- PostReceivePack ---
 
 message PostReceivePackRequest {
   Repository repository = 1;
@@ -37,6 +46,8 @@ message PostReceivePackResponse {
 }
 
 service SmartHTTPService {
+  rpc InfoRefsUploadPack(InfoRefsRequest) returns (stream PostUploadPackWithSidechannelResponse);
+  rpc InfoRefsReceivePack(InfoRefsRequest) returns (stream PostReceivePackResponse);
   rpc PostUploadPackWithSidechannel(PostUploadPackWithSidechannelRequest) returns (PostUploadPackWithSidechannelResponse);
   rpc PostReceivePack(stream PostReceivePackRequest) returns (stream PostReceivePackResponse);
 }
