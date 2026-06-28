@@ -188,6 +188,10 @@ impl GitalyClient {
 
         let response = self.smart_http.post_receive_pack(req).await?;
         let response_data = response.into_inner().data;
+        tracing::info!("post_receive_pack response: {} bytes", response_data.len());
+        if response_data.len() < 200 {
+            tracing::info!("response data: {:?}", String::from_utf8_lossy(&response_data));
+        }
         Ok(response_data)
     }
 
