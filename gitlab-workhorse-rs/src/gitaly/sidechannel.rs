@@ -5,7 +5,8 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::net::{TcpStream, UnixStream};
 use tokio::sync::{oneshot, Mutex as TokioMutex};
-use tokio_util::compat::{Compat, FuturesAsyncReadCompatExt};
+use tokio_util::compat::{Compat, FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
+use hyper_util::rt::TokioIo;
 
 type RegistryKey = String;
 
@@ -72,7 +73,7 @@ impl GitalyConnection {
     }
 
     async fn from_stream(stream: CompatStream) -> io::Result<Self> {
-        let compat: Compat<CompatStream> = Compat::new(stream);
+        let compat = stream.compat();
         let cfg = yamux::Config::default();
         let connection = yamux::Connection::new(compat, cfg, yamux::Mode::Client);
         let conn = Arc::new(std::sync::Mutex::new(connection));
@@ -190,20 +191,25 @@ pub struct Sidechannel {
 
 impl Sidechannel {
     pub async fn write_all(&mut self, data: &[u8]) -> io::Result<()> {
-        futures::AsyncWriteExt::write_all(Pin::new(&mut self.stream), data).await
+        use futures::AsyncWriteExt;
+        (&mut self.stream).write_all(data).await
     }
 
     pub async fn read_to_end(&mut self, buf: &mut Vec<u8>) -> io::Result<usize> {
+        use futures::AsyncReadExt;
         let before = buf.len();
-        futures::AsyncReadExt::read_to_end(Pin::new(&mut self.stream), buf).await
+        (&mut self.stream).read_to_end(buf).await?;
+        Ok(buf.len() - before)
     }
 
     pub async fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
-        futures::AsyncReadExt::read_exact(Pin::new(&mut self.stream), buf).await
+        use futures::AsyncReadExt;
+        (&mut self.stream).read_exact(buf).await
     }
 
     pub async fn shutdown(&mut self) -> io::Result<()> {
-        futures::AsyncWriteExt::close(Pin::new(&mut self.stream)).await
+        use futures::AsyncWriteExt;
+        (&mut self.stream).close().await
     }
 }
 

@@ -5,7 +5,6 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio_util::compat::FuturesAsyncReadCompatExt;
 
 use sidechannel::GitalyConnection;
 
@@ -76,18 +75,16 @@ impl GitalyClient {
 
     async fn build_channel(conn: &GitalyConnection) -> io::Result<Channel> {
         let stream = conn.open_compat_stream().await?;
-        tonic::transport::Endpoint::try_from("http://gitaly.internal")
+        let chan = tonic::transport::Endpoint::try_from("http://gitaly.internal")
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
-            .connect_with_connector(tower::service_fn(move |_: tonic::transport::Uri| {
-                // Stream is moved here; each channel gets its own stream
+            .connect_with_connector_lazy(tower::service_fn(move |_: tonic::transport::Uri| {
                 let s = std::sync::Mutex::new(Some(stream));
                 async move {
                     let stream = s.lock().unwrap().take().unwrap();
-                    Ok::<_, io::Error>(stream)
+                    Ok::<_, io::Error>(hyper_util::rt::TokioIo::new(stream))
                 }
-            }))
-            .await
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+            }));
+        Ok(chan)
     }
 
     fn auth_token(&self) -> tonic::metadata::MetadataValue<tonic::metadata::Ascii> {
