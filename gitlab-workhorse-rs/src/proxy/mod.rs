@@ -290,7 +290,7 @@ pub async fn proxy_request_streaming(
     let path_str = uri.path().to_string();
     // Check for git URLs FIRST — route to Gitaly or Go sidecar
     let result = if is_git_url(&path_str) {
-        if let (Some(ref gitaly_addr), Some(ref gitaly_token)) = (&state.git.gitaly_address, &state.git.gitaly_token) {
+        if let (Some(gitaly_addr), Some(gitaly_token)) = (&state.git.gitaly_address, &state.git.gitaly_token) {
             proxy_via_gitaly(&state, method, uri, headers, body, gitaly_addr, gitaly_token).await
         } else if let Some(ref git_backend) = state.proxy.git_backend_url {
             proxy_via_git_backend(&state, method, uri, headers, body, git_backend).await
