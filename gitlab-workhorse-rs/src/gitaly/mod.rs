@@ -18,12 +18,14 @@ use gitaly::{
     repository_service_client::RepositoryServiceClient,
     smart_http_service_client::SmartHttpServiceClient,
     GetArchiveRequest, GetBlobRequest, GetSnapshotRequest,
-    InfoRefsRequest, InfoRefsResponse,
-    PostReceivePackRequest, PostReceivePackResponse,
+    InfoRefsRequest,
+    PostReceivePackRequest,
     PostUploadPackWithSidechannelRequest,
     RawDiffRequest, RawPatchRequest,
     Repository,
 };
+
+use sidechannel::YamuxSession;
 
 #[derive(Debug, Clone)]
 pub struct GitalyServer {
@@ -41,6 +43,7 @@ pub struct RepoInfo {
 type Channel = tonic::transport::Channel;
 
 pub struct GitalyClient {
+    session: Arc<YamuxSession>,
     smart_http: SmartHttpServiceClient<Channel>,
     repository: RepositoryServiceClient<Channel>,
     blob: BlobServiceClient<Channel>,
@@ -50,9 +53,13 @@ pub struct GitalyClient {
 
 impl GitalyClient {
     pub async fn connect(server: &GitalyServer) -> io::Result<Self> {
-        let channel = Self::create_grpc_channel(server).await?;
+        let session = YamuxSession::connect(&server.address).await?;
+        let session = Arc::new(session);
+
+        let channel = Self::create_grpc_channel(session.clone()).await?;
 
         Ok(Self {
+            session,
             smart_http: SmartHttpServiceClient::new(channel.clone()),
             repository: RepositoryServiceClient::new(channel.clone()),
             blob: BlobServiceClient::new(channel.clone()),
@@ -61,28 +68,19 @@ impl GitalyClient {
         })
     }
 
-    async fn create_grpc_channel(server: &GitalyServer) -> io::Result<Channel> {
-        if server.address.starts_with("unix:") {
-            let path = server.address.trim_start_matches("unix:").to_string();
-            tonic::transport::Endpoint::try_from("http://[::1]:1")
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
-                .connect_with_connector(tower::service_fn(move |_: tonic::transport::Uri| {
-                    let path = path.clone();
-                    async move {
-                        let stream = tokio::net::UnixStream::connect(path).await
-                            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-                        Ok::<_, io::Error>(hyper_util::rt::TokioIo::new(stream))
-                    }
-                }))
-                .await
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
-        } else {
-            tonic::transport::Endpoint::try_from(format!("http://{}", server.address))
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
-                .connect()
-                .await
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
-        }
+    async fn create_grpc_channel(session: Arc<YamuxSession>) -> io::Result<Channel> {
+        tonic::transport::Endpoint::try_from("http://[::1]:1")
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+            .connect_with_connector(tower::service_fn(move |_: tonic::transport::Uri| {
+                let session = session.clone();
+                async move {
+                    let stream = session.take_grpc_stream().await
+                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+                    Ok::<_, io::Error>(hyper_util::rt::TokioIo::new(stream))
+                }
+            }))
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
     }
 
     fn auth_token(&self) -> tonic::metadata::MetadataValue<tonic::metadata::Ascii> {
@@ -137,8 +135,8 @@ impl GitalyClient {
         &mut self,
         repo: &RepoInfo,
     ) -> Result<sidechannel::SidechannelStream, tonic::Status> {
-        let (key_hex, mut side_conn) = sidechannel::SidechannelConnection::connect(&self.server.address).await
-            .map_err(|e| tonic::Status::internal(format!("sidechannel connect: {}", e)))?;
+        let (key_hex, rx) = self.session.register_sidechannel().await
+            .map_err(|e| tonic::Status::internal(format!("sidechannel register: {}", e)))?;
 
         let mut req = tonic::Request::new(PostUploadPackWithSidechannelRequest {
             repository: Some(self.build_repo(repo)),
@@ -151,8 +149,8 @@ impl GitalyClient {
 
         self.smart_http.post_upload_pack_with_sidechannel(req).await?;
 
-        side_conn.accept().await
-            .map_err(|e| tonic::Status::internal(format!("sidechannel accept: {}", e)))
+        rx.await
+            .map_err(|_| tonic::Status::internal("sidechannel stream not received"))
     }
 
     pub async fn post_receive_pack(
@@ -179,18 +177,10 @@ impl GitalyClient {
             ..Default::default()
         };
 
-        let mut header_bytes = vec![];
-        header.encode(&mut header_bytes).unwrap();
-        tracing::info!("header wire bytes (hex): {:02X?}", header_bytes);
-
         let body = PostReceivePackRequest {
             data: data.clone(),
             ..Default::default()
         };
-
-        let mut body_bytes = vec![];
-        body.encode(&mut body_bytes).unwrap();
-        tracing::info!("body wire bytes (hex): {:02X?}", body_bytes);
 
         let stream = tokio_stream::iter(vec![header, body]);
         let mut req = tonic::Request::new(stream);
