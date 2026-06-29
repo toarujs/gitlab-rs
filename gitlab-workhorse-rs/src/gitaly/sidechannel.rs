@@ -2,8 +2,8 @@ use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::net::{TcpStream, UnixStream};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio_util::compat::{Compat, FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
+use tokio::io::AsyncWriteExt;
+use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 use futures::future::poll_fn;
 
 pub struct SidechannelConnection {
@@ -87,9 +87,10 @@ impl SidechannelConnection {
 
     pub async fn accept(&mut self) -> io::Result<SidechannelStream> {
         let conn = &mut self.connection;
-        poll_fn(|cx| conn.poll_next_inbound(cx)).await
+        let stream = poll_fn(|cx| conn.poll_next_inbound(cx)).await
             .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "yamux connection closed"))?
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        Ok(SidechannelStream { stream })
     }
 }
 
