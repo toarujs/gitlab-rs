@@ -1,18 +1,13 @@
-use std::collections::HashMap;
 use std::io;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::net::{TcpStream, UnixStream};
-use tokio::sync::{oneshot, Mutex as TokioMutex};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::compat::{Compat, FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
+use futures::future::poll_fn;
 
-type RegistryKey = String;
-
-pub struct GitalyConnection {
-    inner: Arc<std::sync::Mutex<yamux::Connection<Compat<CompatStream>>>>,
-    registry: Arc<TokioMutex<HashMap<RegistryKey, oneshot::Sender<Sidechannel>>>>,
-    _task: tokio::task::JoinHandle<()>,
+pub struct SidechannelConnection {
+    connection: yamux::Connection<Compat<CompatStream>>,
 }
 
 enum CompatStream {
@@ -60,139 +55,49 @@ impl tokio::io::AsyncWrite for CompatStream {
     }
 }
 
-impl GitalyConnection {
-    pub async fn connect_tcp(addr: &str) -> io::Result<Self> {
-        let stream = TcpStream::connect(addr).await?;
-        Self::from_stream(CompatStream::Tcp(stream)).await
-    }
+impl SidechannelConnection {
+    pub async fn connect(addr: &str) -> io::Result<(String, Self)> {
+        let mut key_bytes = [0u8; 32];
+        let u1 = uuid::Uuid::new_v4();
+        let u2 = uuid::Uuid::new_v4();
+        key_bytes[..16].copy_from_slice(u1.as_bytes());
+        key_bytes[16..].copy_from_slice(u2.as_bytes());
 
-    pub async fn connect_unix(path: &str) -> io::Result<Self> {
-        let stream = UnixStream::connect(path).await?;
-        Self::from_stream(CompatStream::Unix(stream)).await
-    }
+        let key_hex = hex::encode(&key_bytes);
 
-    async fn from_stream(stream: CompatStream) -> io::Result<Self> {
+        let mut stream = Self::connect_raw(addr).await?;
+
+        stream.write_all(&key_bytes).await?;
+        stream.flush().await?;
+
         let compat = stream.compat();
-        let cfg = yamux::Config::default();
-        let connection = yamux::Connection::new(compat, cfg, yamux::Mode::Client);
-        let conn = Arc::new(std::sync::Mutex::new(connection));
-        let registry: Arc<TokioMutex<HashMap<RegistryKey, oneshot::Sender<Sidechannel>>>> =
-            Arc::new(TokioMutex::new(HashMap::new()));
+        let connection = yamux::Connection::new(compat, yamux::Config::default(), yamux::Mode::Client);
 
-        let reg = registry.clone();
-        let c = conn.clone();
-        let task = tokio::task::spawn_blocking(move || {
-            loop {
-                let maybe_stream = {
-                    let mut guard = c.lock().unwrap();
-                    let waker = futures::task::noop_waker_ref();
-                    let mut cx = Context::from_waker(waker);
-                    match guard.poll_next_inbound(&mut cx) {
-                        Poll::Ready(Some(Ok(stream))) => Some(stream),
-                        Poll::Ready(Some(Err(e))) => {
-                            tracing::debug!("yamux inbound error: {}", e);
-                            None
-                        }
-                        Poll::Ready(None) => {
-                            tracing::debug!("yamux connection closed");
-                            return;
-                        }
-                        Poll::Pending => None,
-                    }
-                }; // cx dropped here
-
-                if let Some(mut raw_stream) = maybe_stream {
-                    let mut key_buf = [0u8; 32];
-                    let mut read = 0usize;
-                    loop {
-                        let waker = futures::task::noop_waker_ref();
-                        let mut cx = Context::from_waker(waker);
-                        let buf_slice = &mut key_buf[read..];
-                        match futures::AsyncRead::poll_read(
-                            Pin::new(&mut raw_stream),
-                            &mut cx,
-                            buf_slice,
-                        ) {
-                            Poll::Ready(Ok(0)) => break,
-                            Poll::Ready(Ok(n)) => {
-                                read += n;
-                                if read >= 32 {
-                                    break;
-                                }
-                            }
-                            Poll::Ready(Err(_)) => break,
-                            Poll::Pending => {
-                                drop(cx);
-                                std::thread::sleep(std::time::Duration::from_millis(5));
-                            }
-                        }
-                    } // cx dropped here
-
-                    if read == 32 {
-                        let key = String::from_utf8_lossy(&key_buf).to_string();
-                        let rt = tokio::runtime::Handle::current();
-                        rt.block_on(async {
-                            let mut reg_map = reg.lock().await;
-                            if let Some(tx) = reg_map.remove(&key) {
-                                let _ = tx.send(Sidechannel { stream: raw_stream });
-                            }
-                        });
-                    }
-                } else {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                }
-            }
-        });
-
-        Ok(Self {
-            inner: conn,
-            registry,
-            _task: task,
-        })
+        Ok((key_hex, Self { connection }))
     }
 
-    /// Open a new yamux stream. Returns a futures::io compatible stream.
-    /// This usually succeeds immediately (no I/O needed for allocating a new stream ID).
-    pub async fn open_yamux_stream(&self) -> io::Result<yamux::Stream> {
-        let c = self.inner.clone();
-        tokio::task::spawn_blocking(move || {
-            loop {
-                let mut guard = c.lock().unwrap();
-                let waker = futures::task::noop_waker_ref();
-                let mut cx = Context::from_waker(waker);
-                match guard.poll_new_outbound(&mut cx) {
-                    Poll::Ready(Ok(stream)) => return Ok(stream),
-                    Poll::Ready(Err(e)) => return Err(io::Error::new(io::ErrorKind::Other, format!("{}", e))),
-                    Poll::Pending => {
-                        drop(guard);
-                        std::thread::sleep(std::time::Duration::from_millis(5));
-                    }
-                }
-            }
-        })
-        .await
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?
+    async fn connect_raw(addr: &str) -> io::Result<CompatStream> {
+        if addr.starts_with("unix:") {
+            let path = addr.trim_start_matches("unix:");
+            Ok(CompatStream::Unix(UnixStream::connect(path).await?))
+        } else {
+            Ok(CompatStream::Tcp(TcpStream::connect(addr).await?))
+        }
     }
 
-    /// Open a new yamux stream wrapped in tokio-compatible Compat adapter.
-    pub async fn open_compat_stream(&self) -> io::Result<Compat<yamux::Stream>> {
-        let stream = self.open_yamux_stream().await?;
-        Ok(stream.compat())
-    }
-
-    pub async fn register_sidechannel_waiter(&self) -> (RegistryKey, oneshot::Receiver<Sidechannel>) {
-        let key = uuid::Uuid::new_v4().to_string().replace('-', "");
-        let (tx, rx) = oneshot::channel();
-        self.registry.lock().await.insert(key.clone(), tx);
-        (key, rx)
+    pub async fn accept(&mut self) -> io::Result<SidechannelStream> {
+        let conn = &mut self.connection;
+        poll_fn(|cx| conn.poll_next_inbound(cx)).await
+            .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "yamux connection closed"))?
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
     }
 }
 
-pub struct Sidechannel {
+pub struct SidechannelStream {
     stream: yamux::Stream,
 }
 
-impl Sidechannel {
+impl SidechannelStream {
     pub async fn write_all(&mut self, data: &[u8]) -> io::Result<()> {
         use futures::AsyncWriteExt;
         (&mut self.stream).write_all(data).await
@@ -216,7 +121,7 @@ impl Sidechannel {
     }
 }
 
-impl tokio::io::AsyncRead for Sidechannel {
+impl tokio::io::AsyncRead for SidechannelStream {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -238,7 +143,7 @@ impl tokio::io::AsyncRead for Sidechannel {
     }
 }
 
-impl tokio::io::AsyncWrite for Sidechannel {
+impl tokio::io::AsyncWrite for SidechannelStream {
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,

@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use sidechannel::GitalyConnection;
 use prost::Message;
 
 pub mod gitaly {
@@ -42,7 +41,6 @@ pub struct RepoInfo {
 type Channel = tonic::transport::Channel;
 
 pub struct GitalyClient {
-    sidechannel_conn: GitalyConnection,
     smart_http: SmartHttpServiceClient<Channel>,
     repository: RepositoryServiceClient<Channel>,
     blob: BlobServiceClient<Channel>,
@@ -53,10 +51,8 @@ pub struct GitalyClient {
 impl GitalyClient {
     pub async fn connect(server: &GitalyServer) -> io::Result<Self> {
         let channel = Self::create_grpc_channel(server).await?;
-        let sidechannel_conn = Self::create_sidechannel_conn(server).await?;
 
         Ok(Self {
-            sidechannel_conn,
             smart_http: SmartHttpServiceClient::new(channel.clone()),
             repository: RepositoryServiceClient::new(channel.clone()),
             blob: BlobServiceClient::new(channel.clone()),
@@ -86,15 +82,6 @@ impl GitalyClient {
                 .connect()
                 .await
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
-        }
-    }
-
-    async fn create_sidechannel_conn(server: &GitalyServer) -> io::Result<GitalyConnection> {
-        if server.address.starts_with("unix:") {
-            let path = server.address.trim_start_matches("unix:");
-            GitalyConnection::connect_unix(path).await
-        } else {
-            GitalyConnection::connect_tcp(&server.address).await
         }
     }
 
@@ -149,18 +136,23 @@ impl GitalyClient {
     pub async fn post_upload_pack_with_sidechannel(
         &mut self,
         repo: &RepoInfo,
-    ) -> Result<sidechannel::Sidechannel, tonic::Status> {
-        let (reg_key, rx) = self.sidechannel_conn.register_sidechannel_waiter().await;
+    ) -> Result<sidechannel::SidechannelStream, tonic::Status> {
+        let (key_hex, mut side_conn) = sidechannel::SidechannelConnection::connect(&self.server.address).await
+            .map_err(|e| tonic::Status::internal(format!("sidechannel connect: {}", e)))?;
+
         let mut req = tonic::Request::new(PostUploadPackWithSidechannelRequest {
             repository: Some(self.build_repo(repo)),
         });
         req.metadata_mut().insert("authorization", self.auth_token());
         req.metadata_mut().insert(
-            "gitaly-sidechannel",
-            reg_key.parse().unwrap(),
+            "gitaly-sidechannel-id",
+            key_hex.parse().unwrap(),
         );
+
         self.smart_http.post_upload_pack_with_sidechannel(req).await?;
-        rx.await.map_err(|_| tonic::Status::internal("sidechannel stream not received"))
+
+        side_conn.accept().await
+            .map_err(|e| tonic::Status::internal(format!("sidechannel accept: {}", e)))
     }
 
     pub async fn post_receive_pack(
