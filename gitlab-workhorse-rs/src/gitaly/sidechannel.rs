@@ -3,11 +3,9 @@ use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use futures::{AsyncReadExt, AsyncWriteExt};
-use tokio::io::ReadBuf;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UnixStream};
 use tokio::sync::{mpsc, oneshot, Mutex as TokioMutex};
-use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 
 const YAMUX_TYPE_DATA: u8 = 0;
 const YAMUX_TYPE_WINDOW_UPDATE: u8 = 1;
@@ -61,7 +59,7 @@ impl tokio::io::AsyncWrite for CompatStream {
     }
 }
 
-type RawConn = Arc<TokioMutex<Compat<CompatStream>>>;
+type RawConn = Arc<TokioMutex<CompatStream>>;
 
 pub struct YamuxSession {
     raw: RawConn,
@@ -73,18 +71,17 @@ pub struct YamuxSession {
 
 impl YamuxSession {
     pub async fn connect(addr: &str) -> io::Result<Self> {
-        let raw = connect_raw(addr).await?;
-        let mut compat = raw.compat();
+        let mut raw = connect_raw(addr).await?;
 
-        (&mut *compat).write_all(BACKCHANNEL_MAGIC).await?;
+        raw.write_all(BACKCHANNEL_MAGIC).await?;
 
-        send_raw_frame(&mut compat, YAMUX_TYPE_DATA, YAMUX_FLAG_SYN, 0, &[]).await?;
-        let frame = read_raw_frame(&mut compat).await?;
+        send_raw_frame(&mut raw, YAMUX_TYPE_DATA, YAMUX_FLAG_SYN, 0, &[]).await?;
+        let frame = read_raw_frame(&mut raw).await?;
         if frame.stream_id != 0 || frame.flags != (YAMUX_FLAG_SYN | YAMUX_FLAG_ACK) {
             return Err(io::Error::new(io::ErrorKind::Other, "yamux handshake failed"));
         }
 
-        let raw: RawConn = Arc::new(TokioMutex::new(compat));
+        let raw: RawConn = Arc::new(TokioMutex::new(raw));
         let (write_tx, write_rx) = mpsc::unbounded_channel::<(u32, Vec<u8>)>();
         let stream_rx_map = Arc::new(TokioMutex::new(HashMap::new()));
         let sidechannel_waiters: Arc<TokioMutex<HashMap<u64, oneshot::Sender<SidechannelStream>>>> =
@@ -417,7 +414,7 @@ async fn connect_raw(addr: &str) -> io::Result<CompatStream> {
 }
 
 async fn send_raw_frame(
-    stream: &mut Compat<CompatStream>,
+    stream: &mut CompatStream,
     type_: u8,
     flags: u16,
     stream_id: u32,
@@ -430,17 +427,17 @@ async fn send_raw_frame(
     let len = data.len() as u32;
     header[8..12].copy_from_slice(&len.to_be_bytes());
 
-    (&mut *stream).write_all(&header).await?;
+    stream.write_all(&header).await?;
     if !data.is_empty() {
-        (&mut *stream).write_all(data).await?;
+        stream.write_all(data).await?;
     }
-    (&mut *stream).flush().await?;
+    stream.flush().await?;
     Ok(())
 }
 
-async fn read_raw_frame(stream: &mut Compat<CompatStream>) -> io::Result<YamuxFrame> {
+async fn read_raw_frame(stream: &mut CompatStream) -> io::Result<YamuxFrame> {
     let mut header = [0u8; 12];
-    (&mut *stream).read_exact(&mut header).await?;
+    stream.read_exact(&mut header).await?;
 
     let frame_type = header[1];
     let flags = u16::from_be_bytes([header[2], header[3]]);
@@ -449,7 +446,7 @@ async fn read_raw_frame(stream: &mut Compat<CompatStream>) -> io::Result<YamuxFr
 
     let mut data = vec![0u8; length];
     if length > 0 {
-        (&mut *stream).read_exact(&mut data).await?;
+        stream.read_exact(&mut data).await?;
     }
 
     Ok(YamuxFrame { stream_id, frame_type, flags, data })
