@@ -89,9 +89,16 @@ docker build -t gitlab-rs -f docker/Dockerfile-server docker/
 
 # 或从 Docker Hub 拉取
 docker pull toarujs/gitlab-rs:latest
+
+# 配置环境变量
+cp docker/.env.example .env
+# 编辑 .env 修改密码和域名
+
+# 启动
+docker compose -f docker/docker-compose.yaml up -d
 ```
 
-Docker 部署采用三容器架构 (workhorse + PostgreSQL + Redis)。完整编排文件见 `docker/docker-compose-server.yml`。
+Docker 部署采用三容器架构 (workhorse + PostgreSQL + Redis)。通过 `.env` 文件配置域名、端口和密码。
 
 ## 架构
 
