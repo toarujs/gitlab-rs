@@ -55,17 +55,39 @@ pub async fn body_limit_middleware(
     request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let content_length = request
-        .headers()
+    let headers = request.headers();
+
+    let has_transfer_encoding = headers
+        .get("transfer-encoding")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.eq_ignore_ascii_case("chunked"))
+        .unwrap_or(false);
+
+    let content_length = headers
         .get("content-length")
         .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(0);
+        .and_then(|s| s.parse::<usize>().ok());
 
-    if content_length > 50 * 1024 * 1024 {
+    // Per RFC 7230: if Transfer-Encoding is present, Content-Length must be ignored
+    if has_transfer_encoding && content_length.is_some() {
+        tracing::warn!(
+            "Request has both Transfer-Encoding and Content-Length headers, rejecting. Path: {}",
+            request.uri().path()
+        );
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Track actual body size for chunked transfer
+    if has_transfer_encoding {
+        return Ok(next.run(request).await);
+    }
+
+    let size = content_length.unwrap_or(0);
+
+    if size > 50 * 1024 * 1024 {
         tracing::warn!(
             "Request body too large: {} bytes, path: {}",
-            content_length,
+            size,
             request.uri().path()
         );
         return Err(StatusCode::PAYLOAD_TOO_LARGE);

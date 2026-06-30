@@ -25,6 +25,21 @@ message InfoRefsResponse {
   bytes data = 1;
 }
 
+// --- PostUploadPack ---
+
+message PostUploadPackRequest {
+  Repository repository = 1;
+  bytes data = 2;
+  string gl_id = 3;
+  string gl_repository = 4;
+  string gl_username = 5;
+  string git_protocol = 6;
+}
+
+message PostUploadPackResponse {
+  bytes data = 1;
+}
+
 // --- PostUploadPackWithSidechannel ---
 
 message PostUploadPackWithSidechannelRequest {
@@ -52,6 +67,7 @@ message PostReceivePackResponse {
 service SmartHTTPService {
   rpc InfoRefsUploadPack(InfoRefsRequest) returns (stream InfoRefsResponse);
   rpc InfoRefsReceivePack(InfoRefsRequest) returns (stream InfoRefsResponse);
+  rpc PostUploadPack(PostUploadPackRequest) returns (stream PostUploadPackResponse);
   rpc PostUploadPackWithSidechannel(PostUploadPackWithSidechannelRequest) returns (PostUploadPackWithSidechannelResponse);
   rpc PostReceivePack(stream PostReceivePackRequest) returns (PostReceivePackResponse);
 }

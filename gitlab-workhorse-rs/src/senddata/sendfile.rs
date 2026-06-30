@@ -29,23 +29,27 @@ pub async fn send_file_inject(
 
     let file_path = PathBuf::from(&params.path);
 
-    if !file_path.exists() || !file_path.is_file() {
+    let canonical = tokio::fs::canonicalize(&file_path).await.map_err(|_| {
+        tracing::warn!("Send-file: path not found or invalid: {}", params.path);
+        StatusCode::NOT_FOUND
+    })?;
+
+    if !canonical.is_file() {
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let metadata = tokio::fs::metadata(&file_path).await.map_err(|e| {
+    let metadata = tokio::fs::metadata(&canonical).await.map_err(|e| {
         tracing::error!("Failed to get file metadata: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
     let file_size = metadata.len();
 
-    let file = tokio::fs::File::open(&file_path).await.map_err(|e| {
+    let file = tokio::fs::File::open(&canonical).await.map_err(|e| {
         tracing::error!("Failed to open send-file: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    // Stream file in chunks instead of reading entire file into memory
     let reader_stream = ReaderStream::new(file);
     let body_stream = reader_stream
         .map(|result| {
@@ -66,10 +70,11 @@ pub async fn send_file_inject(
     if let Some(disposition) = &params.content_disposition {
         response_headers.insert("content-disposition", disposition.parse().unwrap());
     } else {
-        let filename = file_path.file_name().unwrap_or_default().to_string_lossy();
+        let filename = canonical.file_name().unwrap_or_default().to_string_lossy();
+        let sanitized = sanitize_filename(&filename);
         response_headers.insert(
             "content-disposition",
-            format!("attachment; filename=\"{}\"", filename)
+            format!("attachment; filename=\"{}\"", sanitized)
                 .parse()
                 .unwrap(),
         );
@@ -81,4 +86,10 @@ pub async fn send_file_inject(
     *response.status_mut() = StatusCode::OK;
     *response.headers_mut() = response_headers;
     Ok(response)
+}
+
+fn sanitize_filename(name: &str) -> String {
+    name.chars()
+        .map(|c| if c == '\r' || c == '\n' || c == '"' || c == '\\' { '_' } else { c })
+        .collect()
 }

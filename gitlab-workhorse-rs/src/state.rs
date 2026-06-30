@@ -29,7 +29,7 @@ pub struct AppState {
     pub cache: Option<cache::CacheState>,
     pub memory_pool: memory::MemoryPool,
     pub injecters: Arc<senddata::InjecterRegistry>,
-    pub secret: Option<secret::Secret>,
+    pub secret: secret::Secret,
     pub webp_converter: Arc<imageresizer::WebPConverter>,
 }
 
@@ -46,7 +46,7 @@ impl std::fmt::Debug for AppState {
             .field("cache", &self.cache)
             .field("memory_pool", &self.memory_pool)
             .field("injecters", &"<InjecterRegistry>")
-            .field("secret", &self.secret.as_ref().map(|_| "<secret>"))
+            .field("secret", &"<secret>")
             .finish()
     }
 }

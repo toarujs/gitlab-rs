@@ -20,10 +20,12 @@ use gitaly::{
     GetArchiveRequest, GetBlobRequest, GetSnapshotRequest,
     InfoRefsRequest, InfoRefsResponse,
     PostReceivePackRequest, PostReceivePackResponse,
+    PostUploadPackRequest, PostUploadPackResponse,
     PostUploadPackWithSidechannelRequest,
     RawDiffRequest, RawPatchRequest,
     Repository,
 };
+use tonic::transport::Channel;
 
 #[derive(Debug, Clone)]
 pub struct GitalyServer {
@@ -36,9 +38,20 @@ pub struct GitalyServer {
 pub struct RepoInfo {
     pub storage_name: String,
     pub relative_path: String,
+    pub gl_project_path: String,
+    pub gl_repository: String,
 }
 
-type Channel = tonic::transport::Channel;
+impl RepoInfo {
+    pub fn new(storage_name: &str, relative_path: &str, gl_project_path: &str, gl_repository: &str) -> Self {
+        Self {
+            storage_name: storage_name.to_string(),
+            relative_path: relative_path.to_string(),
+            gl_project_path: gl_project_path.to_string(),
+            gl_repository: gl_repository.to_string(),
+        }
+    }
+}
 
 pub struct GitalyClient {
     smart_http: SmartHttpServiceClient<Channel>,
@@ -95,8 +108,8 @@ impl GitalyClient {
         Repository {
             storage_name: repo.storage_name.clone(),
             relative_path: repo.relative_path.clone(),
-            gl_project_path: "root/test-project-1".to_string(),
-            gl_repository: "project-1".to_string(),
+            gl_project_path: repo.gl_project_path.clone(),
+            gl_repository: repo.gl_repository.clone(),
             ..Default::default()
         }
     }
@@ -133,35 +146,50 @@ impl GitalyClient {
         Ok(data)
     }
 
+    pub async fn post_upload_pack(
+        &mut self,
+        repo: &RepoInfo,
+        data: Vec<u8>,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        let mut req = tonic::Request::new(PostUploadPackRequest {
+            repository: Some(self.build_repo(repo)),
+            data,
+            ..Default::default()
+        });
+        req.metadata_mut().insert("authorization", self.auth_token());
+        let mut stream = self.smart_http.post_upload_pack(req).await?.into_inner();
+        let mut result = Vec::new();
+        while let Some(chunk) = stream.message().await? {
+            result.extend_from_slice(&chunk.data);
+        }
+        Ok(result)
+    }
+
     pub async fn post_upload_pack_with_sidechannel(
         &mut self,
         repo: &RepoInfo,
-    ) -> Result<sidechannel::SidechannelStream, tonic::Status> {
+        request_body: Vec<u8>,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        // First, establish yamux session for sidechannel data transfer
+        tracing::info!("yamux: connecting to Gitaly at {}", self.server.address);
         let session = sidechannel::YamuxSession::connect(&self.server.address).await
             .map_err(|e| tonic::Status::internal(format!("yamux connect: {}", e)))?;
-        let session = Arc::new(session);
+        tracing::info!("yamux: connected");
 
+        tracing::info!("yamux: registering sidechannel");
         let (key_hex, rx) = session.register_sidechannel().await
             .map_err(|e| tonic::Status::internal(format!("sidechannel register: {}", e)))?;
+        tracing::info!("yamux: sidechannel registered, key={}", key_hex);
 
-        let channel = tonic::transport::Endpoint::try_from("http://[::1]:1")
-            .map_err(|e| tonic::Status::internal(e.to_string()))?
-            .connect_with_connector(tower::service_fn({
-                let session = session.clone();
-                move |_: tonic::transport::Uri| {
-                    let session = session.clone();
-                    async move {
-                        let stream = session.take_grpc_stream().await
-                            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-                        Ok::<_, io::Error>(hyper_util::rt::TokioIo::new(stream))
-                    }
-                }
-            }))
+        // Create a gRPC channel that uses the yamux stream as transport
+        let yamux_channel = session.create_grpc_channel()
             .await
-            .map_err(|e| tonic::Status::internal(format!("yamux channel: {}", e)))?;
-
-        let mut client = SmartHttpServiceClient::new(channel);
-
+            .map_err(|e| tonic::Status::internal(format!("create grpc channel: {}", e)))?;
+        
+        // Create a new SmartHttpServiceClient that uses the yamux channel
+        let mut yamux_smart_http = SmartHttpServiceClient::new(yamux_channel);
+        
+        // Prepare gRPC request
         let mut req = tonic::Request::new(PostUploadPackWithSidechannelRequest {
             repository: Some(self.build_repo(repo)),
         });
@@ -171,10 +199,47 @@ impl GitalyClient {
             key_hex.parse().unwrap(),
         );
 
-        client.post_upload_pack_with_sidechannel(req).await?;
+        // Spawn gRPC call in a separate task so it doesn't block sidechannel handling
+        let grpc_handle = tokio::spawn(async move {
+            tracing::info!("yamux: calling gRPC PostUploadPackWithSidechannel");
+            yamux_smart_http.post_upload_pack_with_sidechannel(req).await
+        });
 
-        rx.await
-            .map_err(|_| tonic::Status::internal("sidechannel stream not received"))
+        // Wait for sidechannel stream to be ready
+        tracing::info!("yamux: waiting for sidechannel stream");
+        let mut sidechannel = rx.await
+            .map_err(|_| tonic::Status::internal("sidechannel stream not received"))?;
+
+        // Write request body to sidechannel using pktline framing
+        // Gitaly's ServerConn.Read() strips pktline framing before passing to git-upload-pack
+        tracing::debug!("yamux: writing {} bytes to sidechannel (pktline framed)", request_body.len());
+        sidechannel.write_pktline_framed(&request_body).await
+            .map_err(|e| tonic::Status::internal(format!("sidechannel write: {}", e)))?;
+        tracing::info!("yamux: request body written, flushing");
+        
+        // Flush to ensure data is sent
+        sidechannel.flush().await
+            .map_err(|e| tonic::Status::internal(format!("sidechannel flush: {}", e)))?;
+
+        // Close write side to signal EOF to Gitaly
+        // ClientConn.CloseWrite() sends a flush packet "0000"
+        sidechannel.close_write().await
+            .map_err(|e| tonic::Status::internal(format!("sidechannel close_write: {}", e)))?;
+
+        // Read pack data from sidechannel as raw data
+        // Gitaly writes raw bytes via ServerConn.Write()
+        let mut pack_data = Vec::new();
+        sidechannel.read_to_end(&mut pack_data).await
+            .map_err(|e| tonic::Status::internal(format!("sidechannel read: {}", e)))?;
+        tracing::info!("yamux: received {} bytes from sidechannel", pack_data.len());
+
+        // Wait for gRPC call to complete
+        let grpc_result = grpc_handle.await
+            .map_err(|_| tonic::Status::internal("gRPC task failed"))??;
+        
+        tracing::info!("yamux: gRPC call completed, pack_data={} bytes", pack_data.len());
+
+        Ok(pack_data)
     }
 
     pub async fn post_receive_pack(

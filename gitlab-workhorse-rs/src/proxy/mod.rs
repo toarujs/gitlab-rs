@@ -362,12 +362,10 @@ async fn proxy_via_tcp(
     }
 
     // Add workhorse identification headers
-    if let Some(ref secret) = state.secret {
-        let mut auth_headers = HeaderMap::new();
-        if secret::add_workhorse_headers(&mut auth_headers, secret).is_ok() {
-            for (key, value) in auth_headers.iter() {
-                request = request.header(key.as_str(), value.to_str().unwrap_or(""));
-            }
+    let mut auth_headers = HeaderMap::new();
+    if secret::add_workhorse_headers(&mut auth_headers, &state.secret).is_ok() {
+        for (key, value) in auth_headers.iter() {
+            request = request.header(key.as_str(), value.to_str().unwrap_or(""));
         }
     }
 
@@ -412,13 +410,21 @@ async fn proxy_via_tcp(
             // Handle X-Sendfile: Rails returns file path in x-sendfile header, workhorse serves it
             let resp_body = if let Some(sendfile_path) = filtered_response_headers.get(crate::headers::X_SENDFILE_HEADER) {
                 if let Ok(path) = sendfile_path.to_str() {
-                    match tokio::fs::read(path).await {
-                        Ok(file_data) => {
-                            tracing::info!("X-Sendfile served: {} ({} bytes)", path, file_data.len());
-                            Bytes::from(file_data)
+                    match tokio::fs::canonicalize(path).await {
+                        Ok(canonical) => {
+                            match tokio::fs::read(&canonical).await {
+                                Ok(file_data) => {
+                                    tracing::info!("X-Sendfile served: {} ({} bytes)", canonical.display(), file_data.len());
+                                    Bytes::from(file_data)
+                                }
+                                Err(e) => {
+                                    tracing::error!("X-Sendfile read failed: {}: {}", canonical.display(), e);
+                                    resp_body
+                                }
+                            }
                         }
-                        Err(e) => {
-                            tracing::error!("X-Sendfile read failed: {}: {}", path, e);
+                        Err(_) => {
+                            tracing::warn!("X-Sendfile path not found: {}", path);
                             resp_body
                         }
                     }
@@ -431,13 +437,25 @@ async fn proxy_via_tcp(
                 && crate::headers::is_detect_content_type_header_present(&filtered_response_headers)
             {
                 let file_path = format!("/var/opt/gitlab/gitlab-rails{}", uri.path());
-                match tokio::fs::read(&file_path).await {
-                    Ok(file_data) => {
-                        tracing::info!("Served file from disk: {} ({} bytes)", file_path, file_data.len());
-                        Bytes::from(file_data)
+                match tokio::fs::canonicalize(&file_path).await {
+                    Ok(canonical) => {
+                        if canonical.starts_with("/var/opt/gitlab/gitlab-rails") {
+                            match tokio::fs::read(&canonical).await {
+                                Ok(file_data) => {
+                                    tracing::debug!("Served file from disk: {} ({} bytes)", canonical.display(), file_data.len());
+                                    Bytes::from(file_data)
+                                }
+                                Err(e) => {
+                                    tracing::error!("Failed to read file from disk {}: {}", canonical.display(), e);
+                                    resp_body
+                                }
+                            }
+                        } else {
+                            tracing::warn!("Detect-content-type path traversal attempt: {}", file_path);
+                            resp_body
+                        }
                     }
-                    Err(e) => {
-                        tracing::error!("Failed to read file from disk: {}: {}", file_path, e);
+                    Err(_) => {
                         resp_body
                     }
                 }
@@ -544,13 +562,11 @@ async fn proxy_via_unix_socket(
     request = request.header("X-Forwarded-Proto", "https");
 
     // Add workhorse identification headers (JWT auth)
-    if let Some(ref secret) = state.secret {
-        let mut auth_headers = HeaderMap::new();
-        if secret::add_workhorse_headers(&mut auth_headers, secret).is_ok() {
-            for (key, value) in auth_headers.iter() {
-                if let Ok(v) = value.to_str() {
-                    request = request.header(key.as_str(), v);
-                }
+    let mut auth_headers = HeaderMap::new();
+    if secret::add_workhorse_headers(&mut auth_headers, &state.secret).is_ok() {
+        for (key, value) in auth_headers.iter() {
+            if let Ok(v) = value.to_str() {
+                request = request.header(key.as_str(), v);
             }
         }
     }
@@ -674,11 +690,12 @@ fn strip_secure_from_set_cookie(headers: &mut HeaderMap) {
 pub async fn proxy_websocket(
     State(state): State<AppState>,
     uri: Uri,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
     let ws_host = state.proxy.backend_url.host_str().unwrap_or("localhost").to_string();
     let ws_port = state.proxy.backend_url.port().unwrap_or(80);
-    let ws_url = format!("ws://{}:{}{}", ws_host, ws_port, uri.path());
+    let ws_scheme = if state.proxy.backend_url.scheme() == "https" { "wss" } else { "ws" };
+    let ws_url = format!("{}://{}:{}{}", ws_scheme, ws_host, ws_port, uri.path());
 
     let (ws_stream, _) = connect_async(&ws_url).await.map_err(|e| {
         tracing::error!("WebSocket connection failed: {}", e);
@@ -770,12 +787,10 @@ async fn proxy_via_git_backend(
     }
 
     // Add workhorse headers (Go workhorse will verify and add its own JWT)
-    if let Some(ref secret) = state.secret {
-        let mut auth_headers = HeaderMap::new();
-        if secret::add_workhorse_headers(&mut auth_headers, secret).is_ok() {
-            for (key, value) in auth_headers.iter() {
-                request = request.header(key.as_str(), value.to_str().unwrap_or(""));
-            }
+    let mut auth_headers = HeaderMap::new();
+    if secret::add_workhorse_headers(&mut auth_headers, &state.secret).is_ok() {
+        for (key, value) in auth_headers.iter() {
+            request = request.header(key.as_str(), value.to_str().unwrap_or(""));
         }
     }
 
@@ -834,7 +849,7 @@ async fn proxy_via_gitaly(
     state: &AppState,
     method: Method,
     uri: Uri,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     body: Body,
     gitaly_addr: &str,
     gitaly_token: &str,
@@ -858,10 +873,12 @@ async fn proxy_via_gitaly(
         }
     };
 
-    let repo = gitaly::RepoInfo {
-        storage_name,
-        relative_path,
-    };
+    let repo = gitaly::RepoInfo::new(
+        &storage_name,
+        &relative_path,
+        &extract_gl_project_path(path).unwrap_or_else(|| "unknown".to_string()),
+        &extract_gl_repository(path).unwrap_or_else(|| "unknown".to_string()),
+    );
 
     tracing::info!("Connecting to Gitaly at {} with token len={}", gitaly_addr, gitaly_token.len());
 
@@ -923,24 +940,11 @@ async fn proxy_via_gitaly(
             })
             .await;
 
-        match client.post_upload_pack_with_sidechannel(&repo).await {
-            Ok(mut sidechannel) => {
-                // Write git protocol data (wants, negotiation) to sidechannel
-                if let Err(e) = sidechannel.write_all(&body_bytes).await {
-                    tracing::error!("sidechannel write failed: {}", e);
-                    return Err(StatusCode::BAD_GATEWAY);
-                }
-                if let Err(e) = sidechannel.shutdown().await {
-                    tracing::error!("sidechannel shutdown failed: {}", e);
-                }
+        tracing::info!("git-upload-pack: body_bytes len={}", body_bytes.len());
 
-                // Read pack data from sidechannel
-                let mut pack_data = Vec::new();
-                if let Err(e) = sidechannel.read_to_end(&mut pack_data).await {
-                    tracing::error!("sidechannel read failed: {}", e);
-                    return Err(StatusCode::BAD_GATEWAY);
-                }
-
+        match client.post_upload_pack_with_sidechannel(&repo, body_bytes).await {
+            Ok(pack_data) => {
+                tracing::info!("PostUploadPackWithSidechannel returned {} bytes", pack_data.len());
                 let mut response_headers = HeaderMap::new();
                 response_headers.insert(
                     "content-type",
@@ -964,7 +968,17 @@ async fn proxy_via_gitaly(
             })
             .await;
 
-        match client.post_receive_pack(&repo, body_bytes, "user-1", "root").await {
+        let gl_id = headers
+            .get("gitlab-workhorse-gl-id")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("user-1")
+            .to_string();
+        let gl_username = headers
+            .get("gitlab-workhorse-gl-username")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("root")
+            .to_string();
+        match client.post_receive_pack(&repo, body_bytes, &gl_id, &gl_username).await {
             Ok(data) => {
                 let mut response_headers = HeaderMap::new();
                 response_headers.insert(
@@ -1005,17 +1019,59 @@ fn extract_repo_path(path: &str) -> Option<(String, String)> {
         return None;
     }
 
+    if !clean.ends_with(".git") {
+        return None;
+    }
+
     let storage_name = "default".to_string();
     Some((storage_name, clean.to_string()))
+}
+
+fn extract_gl_project_path(path: &str) -> Option<String> {
+    let clean = path.trim_start_matches('/')
+        .trim_end_matches("/info/refs")
+        .trim_end_matches("/git-upload-pack")
+        .trim_end_matches("/git-receive-pack")
+        .trim_end_matches(".git");
+    if clean.is_empty() {
+        return None;
+    }
+    Some(format!("/{}", clean))
+}
+
+fn extract_gl_repository(path: &str) -> Option<String> {
+    let clean = path.trim_start_matches('/');
+    if let Some(last_slash) = clean.rfind('/') {
+        let project_part = &clean[last_slash + 1..];
+        let project_part = project_part.trim_end_matches(".git");
+        if !project_part.is_empty() {
+            return Some(project_part.to_string());
+        }
+    }
+    let project_part = clean.trim_end_matches(".git");
+    if !project_part.is_empty() {
+        return Some(project_part.to_string());
+    }
+    None
 }
 
 /// Resolve a virtual repo path (e.g. "root/test-project-1.git") to its actual hashed storage path.
 /// TODO: Replace with proper auth flow through Rails backend.
 fn resolve_actual_repo_path(url_path: &str) -> String {
-    if url_path == "root/test-project-1.git" {
-        return "@hashed/6b/86/6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b.git".to_string();
+    // TODO: Query Rails backend to get actual hashed path
+    // For now, use a simple mapping based on known projects
+    match url_path {
+        "root/test-project-1.git" => "@hashed/4a/44/4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5.git".to_string(),
+        "toaru/gitlab-rust.git" => "@hashed/19/58/19581e27de7ced00ff1ce50b2047e7a567c76b1cbaebabe5ef03f7c3017bb5b7.git".to_string(),
+        "toaru/xiaomi-switch.git" => "@hashed/ef/2d/ef2d127de37b942baad06145e54b0c619a1f22327b2ebbcfbec78f5564afe39d.git".to_string(),
+        "toaru/novel.git" => "@hashed/79/02/7902699be42c8a8e46fbbb4501726517e86b22c56a189f7625a6da49081b2451.git".to_string(),
+        "toaru/sgk-information-retriever.git" => "@hashed/6b/86/6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b.git".to_string(),
+        "toaru/seed-vc-pro.git" => "@hashed/d4/73/d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35.git".to_string(),
+        "toaru/index-tts-pro.git" => "@hashed/4e/07/4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce.git".to_string(),
+        "toaru/halo-auto-push.git" => "@hashed/4b/22/4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a.git".to_string(),
+        "toaru/maple-os.git" => "@hashed/e7/f6/e7f6c011776e8db7cd330b54174fd76f7d0216b612387a5ffcfb81e6f0919683.git".to_string(),
+        _ => url_path.to_string(),
     }
-    url_path.to_string()
 }
 
 /// Format git pkt-line advertisement response for info/refs

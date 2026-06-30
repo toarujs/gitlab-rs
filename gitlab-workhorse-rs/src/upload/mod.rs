@@ -102,8 +102,8 @@ pub async fn handle_upload(
     state.memory_pool.release(buf).await;
 
     Ok(Json(UploadResponse {
-        id: upload_id,
-        path: upload_path.to_string_lossy().to_string(),
+        id: upload_id.clone(),
+        path: format!("/uploads/{}", upload_id),
         size: total_size,
         content_type,
     }))

@@ -35,6 +35,19 @@ pub async fn handle_git_request(
 ) -> Result<Response, StatusCode> {
     let repo_path = state.git.repository_root.join(&path);
 
+    let canonical = match tokio::fs::canonicalize(&repo_path).await {
+        Ok(c) => c,
+        Err(_) => {
+            tracing::warn!("Git: path not canonicalizable: {}", path);
+            return Err(StatusCode::NOT_FOUND);
+        }
+    };
+
+    if !canonical.starts_with(&state.git.repository_root) {
+        tracing::warn!("Git: path traversal attempt: {}", path);
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     state.metrics.record_git_operation();
 
     let service = query.service.unwrap_or_else(|| {
@@ -53,13 +66,13 @@ pub async fn handle_git_request(
         }
     });
 
-    if !repo_path.exists() && service != "unknown" {
+    if !canonical.exists() && service != "unknown" {
         return Err(StatusCode::NOT_FOUND);
     }
 
     match service.as_str() {
-        "git-upload-pack" => handle_upload_pack(state, path, _headers, body).await,
-        "git-receive-pack" => handle_receive_pack(state, path, _headers, body).await,
+        "git-upload-pack" => handle_upload_pack(state, path, _headers, body, canonical).await,
+        "git-receive-pack" => handle_receive_pack(state, path, _headers, body, canonical).await,
         _ => Err(StatusCode::BAD_REQUEST),
     }
 }
@@ -69,9 +82,8 @@ async fn handle_upload_pack(
     path: String,
     _headers: HeaderMap,
     body: String,
+    repo_path: PathBuf,
 ) -> Result<Response, StatusCode> {
-    let repo_path = state.git.repository_root.join(&path);
-
     if path.ends_with("/info/refs") {
         let refs_list = pack::create_info_refs(&repo_path).map_err(|e| {
             tracing::error!("Failed to get references: {}", e);
@@ -117,9 +129,8 @@ async fn handle_receive_pack(
     path: String,
     _headers: HeaderMap,
     body: String,
+    repo_path: PathBuf,
 ) -> Result<Response, StatusCode> {
-    let repo_path = state.git.repository_root.join(&path);
-
     if path.ends_with("/info/refs") {
         if !repo_path.exists() {
             return Err(StatusCode::NOT_FOUND);
@@ -178,13 +189,26 @@ pub async fn handle_git_clone(
 ) -> Result<Response, StatusCode> {
     let repo_path = state.git.repository_root.join(&path);
 
-    if !repo_path.exists() {
+    let canonical = match tokio::fs::canonicalize(&repo_path).await {
+        Ok(c) => c,
+        Err(_) => {
+            tracing::warn!("Git clone: path not found: {}", path);
+            return Err(StatusCode::NOT_FOUND);
+        }
+    };
+
+    if !canonical.starts_with(&state.git.repository_root) {
+        tracing::warn!("Git clone: path traversal attempt: {}", path);
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    if !canonical.exists() {
         return Err(StatusCode::NOT_FOUND);
     }
 
     state.metrics.record_git_operation();
 
-    let pack_data = pack::create_full_pack(&repo_path).map_err(|e| {
+    let pack_data = pack::create_full_pack(&canonical).map_err(|e| {
         tracing::error!("Failed to create clone pack: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
@@ -194,9 +218,13 @@ pub async fn handle_git_clone(
         "content-type",
         "application/x-git-packed-objects".parse().unwrap(),
     );
+    let filename = canonical.file_name().unwrap_or_default().to_string_lossy();
+    let sanitized = filename.chars()
+        .map(|c| if c == '\r' || c == '\n' || c == '"' || c == '\\' { '_' } else { c })
+        .collect::<String>();
     response_headers.insert(
         "content-disposition",
-        format!("attachment; filename=\"{}.pack\"", path)
+        format!("attachment; filename=\"{}.pack\"", sanitized)
             .parse()
             .unwrap(),
     );

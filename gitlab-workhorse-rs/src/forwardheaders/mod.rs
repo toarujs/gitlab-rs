@@ -104,15 +104,27 @@ pub fn forward_request_headers(
 ) -> HeaderMap {
     let mut result = HeaderMap::new();
 
+    // Parse Connection header to get additional hop-by-hop headers
+    let mut extra_hop_by_hop: Vec<String> = Vec::new();
+    if let Some(conn) = upstream_headers.get("connection") {
+        if let Ok(conn_str) = conn.to_str() {
+            for name in conn_str.split(',') {
+                extra_hop_by_hop.push(name.trim().to_lowercase());
+            }
+        }
+    }
+
     for (key, value) in upstream_headers.iter() {
         let key_lower = key.as_str().to_lowercase();
 
-        // Skip hop-by-hop headers
         if HOP_BY_HOP_HEADERS.contains(&key_lower.as_str()) {
             continue;
         }
 
-        // Skip host header (will be set by reqwest)
+        if extra_hop_by_hop.contains(&key_lower) {
+            continue;
+        }
+
         if key_lower == "host" {
             continue;
         }

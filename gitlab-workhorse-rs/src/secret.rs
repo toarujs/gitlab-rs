@@ -220,15 +220,14 @@ mod tests {
     }
 }
 
-// Debug function to log JWT token
+#[cfg(debug_assertions)]
 pub fn debug_jwt(token: &str) {
-    tracing::info!("Generated JWT token: {}", token);
-    // Decode and log claims
+    tracing::debug!("Generated JWT token");
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() == 3 {
         if let Ok(payload_bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1]) {
             if let Ok(claims) = std::str::from_utf8(&payload_bytes) {
-                tracing::info!("JWT claims: {}", claims);
+                tracing::debug!("JWT claims: {}", claims);
             }
         }
     }

@@ -58,6 +58,7 @@ base64 = "0.22"
 hmac = "0.12"
 sha2 = "0.10"
 ipnet = "2"
+rand = "0.8"
 
 # Compression
 flate2 = "1"
@@ -81,6 +82,9 @@ clap = { version = "4", features = ["derive"] }
 
 # Encoding
 hex = "0.4"
+
+# Yamux multiplexer (for Gitaly backchannel)
+yamux = "0.14"
 
 # Image processing
 image = { version = "0.25", default-features = false, features = ["webp", "png", "jpeg", "gif", "avif"] }

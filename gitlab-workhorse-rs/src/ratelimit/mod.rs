@@ -1,10 +1,11 @@
 use axum::{
-    extract::State,
+    extract::{ConnectInfo, State},
     http::{HeaderMap, StatusCode},
     middleware::Next,
     response::Response,
 };
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
@@ -31,47 +32,49 @@ impl RateLimitState {
         let mut requests = self.requests.write().await;
         let now = Instant::now();
 
-        // Get or create entry for this client
         let entry = requests
             .entry(client_ip.to_string())
             .or_insert_with(Vec::new);
 
-        // Remove old requests outside the window
-        entry.retain(|&time| now.duration_since(time) < self.window_duration);
+        let window_start = now - self.window_duration;
+        entry.retain(|&time| time >= window_start);
 
-        // Check if limit exceeded
         if entry.len() >= self.max_requests as usize {
             return false;
         }
 
-        // Add current request
         entry.push(now);
 
         true
+    }
+
+    pub async fn cleanup_expired(&self) {
+        let mut requests = self.requests.write().await;
+        let now = Instant::now();
+        let window_start = now - self.window_duration;
+        requests.retain(|_ip, times| {
+            times.retain(|&t| t >= window_start);
+            !times.is_empty()
+        });
     }
 }
 
 pub async fn rate_limit_middleware(
     State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     request: axum::extract::Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // Get client IP from headers or use default
-    let client_ip = headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("unknown")
-        .to_string();
+    // Use actual TCP connection IP, not X-Forwarded-For
+    let client_ip = addr.ip().to_string();
 
-    // Check rate limit
     if let Some(rate_limiter) = &state.rate_limit {
         if !rate_limiter.check_rate_limit(&client_ip).await {
             return Err(StatusCode::TOO_MANY_REQUESTS);
         }
     }
 
-    // Process request
     let response = next.run(request).await;
 
     Ok(response)

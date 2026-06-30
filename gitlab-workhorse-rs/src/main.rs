@@ -379,13 +379,11 @@ async fn main() -> anyhow::Result<()> {
     let injecters = Arc::new(senddata::InjecterRegistry::new());
     register_injecters(&injecters);
 
-    let secret = match secret::Secret::from_path(&cli.secret_path) {
-        Ok(s) => Some(s),
-        Err(e) => {
-            tracing::warn!("Failed to load workhorse secret from {}: {}. JWT auth headers will NOT be sent.", cli.secret_path, e);
-            None
-        }
-    };
+    let secret = secret::Secret::from_path(&cli.secret_path)
+        .unwrap_or_else(|e| {
+            tracing::error!("Failed to load workhorse secret from {}: {}. Refusing to start.", cli.secret_path, e);
+            std::process::exit(1);
+        });
 
     let api_limit = cli.api_limit;
     let _queue_limit = if cli.api_queue_limit > 0 {
@@ -813,7 +811,7 @@ async fn main() -> anyhow::Result<()> {
             
             let listener = TcpListener::bind(addr).await?;
             tracing::info!("Listening on {}", addr);
-            axum::serve(listener, app).await?;
+            axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
         }
     }
 

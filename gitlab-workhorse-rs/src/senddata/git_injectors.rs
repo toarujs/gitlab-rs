@@ -56,10 +56,12 @@ async fn connect_gitaly(
             StatusCode::BAD_GATEWAY
         })?;
 
-    let repo = RepoInfo {
-        storage_name: storage.to_string(),
-        relative_path: relative.to_string(),
-    };
+    let repo = RepoInfo::new(
+        storage,
+        relative,
+        &format!("/{}", storage),
+        relative.split('/').last().unwrap_or("unknown"),
+    );
 
     Ok((client, repo))
 }

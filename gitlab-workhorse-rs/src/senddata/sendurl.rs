@@ -124,7 +124,18 @@ pub async fn send_url_inject(
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(timeout))
         .redirect(if allow_redirects {
-            reqwest::redirect::Policy::limited(5)
+            // Use custom redirect policy to validate each redirect target
+            reqwest::redirect::Policy::custom(|attempt| {
+                let url = attempt.url();
+                if !is_ssrf_safe(url.as_str()) {
+                    tracing::warn!("SSRF redirect blocked: {}", url);
+                    attempt.stop()
+                } else if attempt.previous().len() >= 5 {
+                    attempt.stop()
+                } else {
+                    attempt.follow()
+                }
+            })
         } else {
             reqwest::redirect::Policy::none()
         })

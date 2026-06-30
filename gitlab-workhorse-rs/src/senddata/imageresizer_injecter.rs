@@ -32,12 +32,20 @@ pub async fn image_resizer_inject(
     let location = params.location.as_deref().unwrap_or("");
     let file_path = PathBuf::from(location);
 
-    if !file_path.exists() || !file_path.is_file() {
-        tracing::warn!("Image-resizer: file not found at {}", location);
+    let canonical = match tokio::fs::canonicalize(&file_path).await {
+        Ok(c) => c,
+        Err(_) => {
+            tracing::warn!("Image-resizer: path not found: {}", location);
+            return Err(StatusCode::NOT_FOUND);
+        }
+    };
+
+    if !canonical.is_file() {
+        tracing::warn!("Image-resizer: not a file: {}", location);
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let file_data = tokio::fs::read(&file_path).await.map_err(|e| {
+    let file_data = tokio::fs::read(&canonical).await.map_err(|e| {
         tracing::error!("Image-resizer: failed to read file {}: {}", location, e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;

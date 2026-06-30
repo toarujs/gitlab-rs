@@ -32,26 +32,35 @@ pub async fn handle_download(
 ) -> Result<Response, StatusCode> {
     let file_path = state.download.document_root.join(&path);
 
-    if !file_path.exists() {
+    let canonical = match tokio::fs::canonicalize(&file_path).await {
+        Ok(c) => c,
+        Err(_) => {
+            tracing::warn!("Download: path not found: {}", path);
+            return Err(StatusCode::NOT_FOUND);
+        }
+    };
+
+    if !canonical.starts_with(&state.download.document_root) {
+        tracing::warn!("Download: path traversal attempt: {}", path);
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    if !canonical.is_file() {
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let metadata = tokio::fs::metadata(&file_path).await.map_err(|e| {
+    let metadata = tokio::fs::metadata(&canonical).await.map_err(|e| {
         tracing::error!("Failed to get file metadata: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    if !metadata.is_file() {
-        return Err(StatusCode::NOT_FOUND);
-    }
+    let file_size = metadata.len();
 
-    if metadata.len() > state.download.max_file_size {
+    if file_size > state.download.max_file_size {
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
 
-    let file_size = metadata.len();
-
-    let mut file = File::open(&file_path).await.map_err(|e| {
+    let mut file = File::open(&canonical).await.map_err(|e| {
         tracing::error!("Failed to open file: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
@@ -65,7 +74,7 @@ pub async fn handle_download(
     let content = buf;
     state.metrics.record_download(file_size);
 
-    let content_type = mime_guess::from_path(&file_path)
+    let content_type = mime_guess::from_path(&canonical)
         .first_or_octet_stream()
         .to_string();
 
@@ -84,10 +93,13 @@ pub async fn handle_download(
         "inline"
     };
 
-    let filename = file_path.file_name().unwrap_or_default().to_string_lossy();
+    let filename = canonical.file_name().unwrap_or_default().to_string_lossy();
+    let sanitized = filename.chars()
+        .map(|c| if c == '\r' || c == '\n' || c == '"' || c == '\\' { '_' } else { c })
+        .collect::<String>();
     response_headers.insert(
         "content-disposition",
-        format!("{}; filename=\"{}\"", disposition, filename)
+        format!("{}; filename=\"{}\"", disposition, sanitized)
             .parse()
             .unwrap(),
     );
@@ -108,26 +120,35 @@ pub async fn handle_download_stream(
 ) -> Result<Response, StatusCode> {
     let file_path = state.download.document_root.join(&path);
 
-    if !file_path.exists() {
+    let canonical = match tokio::fs::canonicalize(&file_path).await {
+        Ok(c) => c,
+        Err(_) => {
+            tracing::warn!("Download stream: path not found: {}", path);
+            return Err(StatusCode::NOT_FOUND);
+        }
+    };
+
+    if !canonical.starts_with(&state.download.document_root) {
+        tracing::warn!("Download stream: path traversal attempt: {}", path);
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    if !canonical.is_file() {
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let metadata = tokio::fs::metadata(&file_path).await.map_err(|e| {
+    let metadata = tokio::fs::metadata(&canonical).await.map_err(|e| {
         tracing::error!("Failed to get file metadata: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    if !metadata.is_file() {
-        return Err(StatusCode::NOT_FOUND);
-    }
+    let file_size = metadata.len();
 
-    if metadata.len() > state.download.max_file_size {
+    if file_size > state.download.max_file_size {
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
 
-    let file_size = metadata.len();
-
-    let file = File::open(&file_path).await.map_err(|e| {
+    let file = File::open(&canonical).await.map_err(|e| {
         tracing::error!("Failed to open file: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
@@ -137,7 +158,7 @@ pub async fn handle_download_stream(
     state.metrics.record_download(file_size);
 
     let mut response_headers = HeaderMap::new();
-    let content_type = mime_guess::from_path(&file_path)
+    let content_type = mime_guess::from_path(&canonical)
         .first_or_octet_stream()
         .to_string();
     response_headers.insert("content-type", content_type.parse().unwrap());
@@ -146,10 +167,13 @@ pub async fn handle_download_stream(
         file_size.to_string().parse().unwrap(),
     );
 
-    let filename = file_path.file_name().unwrap_or_default().to_string_lossy();
+    let filename = canonical.file_name().unwrap_or_default().to_string_lossy();
+    let sanitized = filename.chars()
+        .map(|c| if c == '\r' || c == '\n' || c == '"' || c == '\\' { '_' } else { c })
+        .collect::<String>();
     response_headers.insert(
         "content-disposition",
-        format!("attachment; filename=\"{}\"", filename)
+        format!("attachment; filename=\"{}\"", sanitized)
             .parse()
             .unwrap(),
     );
