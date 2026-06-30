@@ -246,7 +246,7 @@ pub fn inject_mobile_html(html: &str) -> String {
         );
 
         injected.push_str(
-            "<link rel=\"preconnect\" href=\"https://bak.toarujs.com:9071\" crossorigin>\n",
+            "<link rel=\"preconnect\" href=\"/\" crossorigin>\n",
         );
 
         injected.push_str(
