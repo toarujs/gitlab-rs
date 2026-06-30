@@ -77,6 +77,19 @@ impl CacheState {
         entries.remove(key).is_some()
     }
 
+    pub async fn remove_by_prefix(&self, prefix: &str) -> usize {
+        let mut entries = self.entries.write().await;
+        let keys: Vec<String> = entries.keys()
+            .filter(|k| k.contains(prefix))
+            .cloned()
+            .collect();
+        let count = keys.len();
+        for key in keys {
+            entries.remove(&key);
+        }
+        count
+    }
+
     pub async fn clear(&self) {
         let mut entries = self.entries.write().await;
         entries.clear();

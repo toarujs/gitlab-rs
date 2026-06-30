@@ -87,7 +87,20 @@ pub async fn handle_avatar_upload(
 
     let new_req = Request::from_parts(new_parts, Body::from(json_body));
 
-    match proxy::proxy_handler(State(state), new_req).await {
+    let result = proxy::proxy_handler(State(state.clone()), new_req).await;
+
+    if let Ok(ref resp) = result {
+        if resp.status().is_success() {
+            if let Some(ref cache) = state.cache {
+                let removed = cache.remove_by_prefix("/uploads/-/system/user/avatar/").await;
+                if removed > 0 {
+                    tracing::info!("Invalidated {} avatar cache entries after upload", removed);
+                }
+            }
+        }
+    }
+
+    match result {
         Ok(resp) => resp,
         Err(status) => (status, "").into_response(),
     }

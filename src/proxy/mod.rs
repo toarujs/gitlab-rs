@@ -477,11 +477,9 @@ async fn proxy_via_tcp(
                 }
             }
 
-            // Cache successful GET responses (skip dynamic user content like avatars)
+            // Cache successful GET responses
             if let Some(ref cache) = state.cache {
-                if method == Method::GET && status.is_success()
-                    && !uri.path().contains("/uploads/-/system/user/avatar/")
-                {
+                if method == Method::GET && status.is_success() {
                     let content_type = filtered_response_headers
                         .get("content-type")
                         .and_then(|v| v.to_str().ok())
