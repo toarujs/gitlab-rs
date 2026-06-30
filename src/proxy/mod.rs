@@ -165,7 +165,7 @@ pub async fn proxy_handler(
                 let new_response = if is_mobile {
                     crate::html_injection::inject_into_response(response).await
                 } else {
-                    crate::html_injection::inject_lang_switcher(response).await
+                    response
                 };
                 tracing::info!(
                     method = %method_str,

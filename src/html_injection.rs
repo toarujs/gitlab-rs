@@ -261,10 +261,6 @@ pub fn inject_mobile_html(html: &str) -> String {
         injected.push_str(VIEWPORT_RECHECK_JS);
         injected.push_str("</script>\n");
 
-        injected.push_str("<script>");
-        injected.push_str(WEB_VITALS_JS);
-        injected.push_str("</script>\n");
-
         injected.push_str(&html[head_pos..]);
     } else {
         injected.push_str(html);
