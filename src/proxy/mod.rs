@@ -408,7 +408,8 @@ async fn proxy_via_tcp(
             let resp_body = response.bytes().await.unwrap_or_default();
 
             // Handle X-Sendfile: Rails returns file path in x-sendfile header, workhorse serves it
-            let resp_body = if let Some(sendfile_path) = filtered_response_headers.get(crate::headers::X_SENDFILE_HEADER) {
+            // Check original response_headers (before filtering) since forward_response_headers strips x-sendfile
+            let resp_body = if let Some(sendfile_path) = response_headers.get(crate::headers::X_SENDFILE_HEADER) {
                 if let Ok(path) = sendfile_path.to_str() {
                     match tokio::fs::canonicalize(path).await {
                         Ok(canonical) => {
@@ -433,8 +434,9 @@ async fn proxy_via_tcp(
                 }
             }
             // Handle gitlab-workhorse-detect-content-type: read file from disk when body is empty
+            // Check original response_headers since forward_response_headers strips this header
             else if resp_body.is_empty()
-                && crate::headers::is_detect_content_type_header_present(&filtered_response_headers)
+                && crate::headers::is_detect_content_type_header_present(&response_headers)
             {
                 let file_path = format!("/var/opt/gitlab/gitlab-rails{}", uri.path());
                 match tokio::fs::canonicalize(&file_path).await {
@@ -613,7 +615,8 @@ async fn proxy_via_unix_socket(
     let body_bytes = collected.to_bytes();
 
     // Handle X-Sendfile: Rails returns file path in x-sendfile header, workhorse serves it
-    let body_bytes = if let Some(sendfile_path) = filtered_response_headers.get(crate::headers::X_SENDFILE_HEADER) {
+    // Check original response_headers since forward_response_headers strips x-sendfile
+    let body_bytes = if let Some(sendfile_path) = response_headers.get(crate::headers::X_SENDFILE_HEADER) {
         if let Ok(path) = sendfile_path.to_str() {
             match tokio::fs::read(path).await {
                 Ok(file_data) => {
@@ -631,7 +634,7 @@ async fn proxy_via_unix_socket(
     }
     // Handle gitlab-workhorse-detect-content-type: read file from disk when body is empty
     else if body_bytes.is_empty()
-        && crate::headers::is_detect_content_type_header_present(&filtered_response_headers)
+        && crate::headers::is_detect_content_type_header_present(&response_headers)
     {
         let file_path = format!("/var/opt/gitlab/gitlab-rails{}", uri.path());
         match tokio::fs::read(&file_path).await {
