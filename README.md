@@ -23,6 +23,19 @@ GitLab Workhorse 的 Rust 重写版本。直接替代 GitLab 官方的 Go Workho
 - 基于 JWT 的 Rails 共享密钥认证
 - Gitaly 回调 socket 用于 hook 校验
 
+## 性能对比
+
+与 Go 原版 Workhorse 在同环境下的基准测试 (GitLab CE 19.0.2, 500 次 HTTP 健康检查):
+
+| 指标 | Rust | Go | 提升 |
+|------|------|-----|------|
+| 启动时间 | 197 ms | 2,677 ms | **13.6x** |
+| 空闲内存 (RSS) | 20,668 KB | 57,420 KB | **省 64%** |
+| 加戴内存 (RSS) | 23,432 KB | 62,888 KB | **省 63%** |
+| HTTP 延迟 (最小) | 6 ms | 42 ms | **7x** |
+| HTTP 延迟 (最大) | 146 ms | 2,755 ms | **19x** |
+| HTTP 延迟 (平均) | 11 ms | 296 ms | **27x** |
+
 ## 快速开始
 
 ```bash
