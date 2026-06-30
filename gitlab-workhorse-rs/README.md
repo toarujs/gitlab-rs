@@ -1,40 +1,40 @@
 # GitLab Workhorse RS
 
-GitLab Workhorse rewritten in Rust. A drop-in replacement for GitLab's Go Workhorse -- the smart HTTP proxy that sits between clients and GitLab Rails / Gitaly.
+GitLab Workhorse 的 Rust 重写版本。直接替代 GitLab 官方的 Go Workhorse -- 位于客户端与 GitLab Rails / Gitaly 之间的智能 HTTP 代理。
 
-## Why Rust
+## 为什么用 Rust
 
-- Lower memory footprint
-- Better CPU efficiency
-- Zero-cost abstractions for protocol handling
-- Safe concurrency with async/await (tokio)
+- 更低的内存占用
+- 更高的 CPU 效率
+- 零成本抽象的协议处理
+- 安全的异步并发 (tokio/async-await)
 
-## Features
+## 功能特性
 
-- HTTP reverse proxy to GitLab Rails backend
-- Git Smart HTTP protocol (`git clone/push`) via Gitaly gRPC with sidechannel
-- Large file upload handling (multipart, direct to object storage)
-- WebSocket proxy (ActionCable)
-- Image resizing and WebP conversion
-- CI artifacts processing (ZIP archives)
-- Package registry proxy (Maven, NPM, PyPI, Debian, Helm, etc.)
-- Rate limiting, body size limiting, load shedding
-- Prometheus metrics export
-- JWT-based auth with Rails shared secret
-- Gitaly callback socket for hook validation
+- HTTP 反向代理至 GitLab Rails 后端
+- Git Smart HTTP 协议 (`git clone/push`)，通过 Gitaly gRPC + sidechannel
+- 大文件上传处理 (multipart，直达对象存储)
+- WebSocket 代理 (ActionCable)
+- 图片缩放与 WebP 转换
+- CI 制品处理 (ZIP 归档)
+- 包仓库代理 (Maven, NPM, PyPI, Debian, Helm 等)
+- API 速率限制、请求体大小限制、过载保护
+- Prometheus 指标导出
+- 基于 JWT 的 Rails 共享密钥认证
+- Gitaly 回调 socket 用于 hook 校验
 
-## Quick Start
+## 快速开始
 
 ```bash
-# Build
+# 构建
 cargo build --release
 
-# Run (minimum)
+# 运行（最小配置）
 ./target/release/gitlab-workhorse-rs \
     --auth-backend http://localhost:8080 \
     --secret-path ./.gitlab_workhorse_secret
 
-# Run with Gitaly
+# 运行（连接 Gitaly）
 ./gitlab-workhorse-rs \
     --listen-addr 0.0.0.0:8181 \
     --secret-path /path/to/.gitlab_workhorse_secret \
@@ -45,66 +45,66 @@ cargo build --release
     --log-format json
 ```
 
-## CLI Options
+## 命令行参数
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--listen-addr` | `localhost:8181` | Listen address |
-| `--listen-network` | `tcp` | Network type: tcp, tcp4, tcp6, unix |
-| `--secret-path` | `./.gitlab_workhorse_secret` | Shared secret file with Rails |
-| `--auth-backend` | `http://localhost:8080` | Rails backend URL |
-| `--auth-socket` | (empty) | Rails backend Unix socket (preferred) |
-| `--document-root` | `public` | Static files root |
-| `--gitaly-addr` | (empty) | Gitaly gRPC address |
-| `--gitaly-token` | (empty) | Gitaly auth token |
-| `--gitaly-callback-socket` | (empty) | Gitaly callback Unix socket |
-| `--log-format` | `text` | text, json, structured, none |
-| `--log-file` | (empty) | Log file path |
-| `--config` | (empty) | TOML config file path |
-| `--development-mode` | false | Enable development mode |
-| `--api-limit` | 0 | API rate limit (0 = unlimited) |
-| `--prometheus-listen-addr` | (empty) | Prometheus metrics endpoint |
-| `--proxy-headers-timeout` | 300s | Proxy headers timeout |
-| `--shutdown-timeout` | 60s | Graceful shutdown timeout |
-| `--version` | | Print version and exit |
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--listen-addr` | `localhost:8181` | 监听地址 |
+| `--listen-network` | `tcp` | 网络类型: tcp, tcp4, tcp6, unix |
+| `--secret-path` | `./.gitlab_workhorse_secret` | 与 Rails 共享的密钥文件 |
+| `--auth-backend` | `http://localhost:8080` | Rails 后端地址 |
+| `--auth-socket` | 空 | Rails 后端 Unix socket（优先） |
+| `--document-root` | `public` | 静态文件根目录 |
+| `--gitaly-addr` | 空 | Gitaly gRPC 地址 |
+| `--gitaly-token` | 空 | Gitaly 认证令牌 |
+| `--gitaly-callback-socket` | 空 | Gitaly 回调 Unix socket |
+| `--log-format` | `text` | 日志格式: text, json, structured, none |
+| `--log-file` | 空 | 日志文件路径 |
+| `--config` | 空 | TOML 配置文件路径 |
+| `--development-mode` | false | 开发模式 |
+| `--api-limit` | 0 | API 限流 (0 = 不限制) |
+| `--prometheus-listen-addr` | 空 | Prometheus 指标端点 |
+| `--proxy-headers-timeout` | 300s | 代理请求头超时 |
+| `--shutdown-timeout` | 60s | 优雅关闭超时 |
+| `--version` | | 打印版本 |
 
 ## Docker
 
 ```bash
-# Build image
+# 构建镜像
 docker build -t gitlab-rs -f docker/Dockerfile-server docker/
 
-# Or pull from Docker Hub
+# 或从 Docker Hub 拉取
 docker pull toarujs/gitlab-rs:latest
 ```
 
-Docker setup uses a three-container architecture (workhorse + PostgreSQL + Redis). See `docker/docker-compose-server.yml` for the full compose file.
+Docker 部署采用三容器架构 (workhorse + PostgreSQL + Redis)。完整编排文件见 `docker/docker-compose-server.yml`。
 
-## Architecture
+## 架构
 
 ```
-Client --> Workhorse RS --> Rails (auth preprocessing)
-               |
-               +---------> Gitaly (git operations via gRPC)
-               |
-               +---------> Object Storage (direct upload/download)
-               |
-               +---------> Local Disk (static files, repositories)
+客户端 --> Workhorse RS --> Rails (认证预处理)
+                |
+                +---------> Gitaly (Git 操作，gRPC)
+                |
+                +---------> 对象存储 (直传上传/下载)
+                |
+                +---------> 本地磁盘 (静态文件、仓库)
 ```
 
-Key modules:
+核心模块：
 
-| Module | Purpose |
-|--------|---------|
-| `proxy/` | HTTP/WebSocket reverse proxy with circuit breaker |
-| `gitaly/` | Gitaly gRPC client with sidechannel (yamux multiplexing) |
-| `senddata/` | Response injectors (sendfile, sendurl, git archives, image resizer) |
-| `upload/` | Multipart file upload with progress tracking |
-| `git/` | Git Smart HTTP protocol handler |
-| `secret/` | JWT/HMAC shared secret authentication |
-| `ratelimit/` | API rate limiting |
-| `imageresizer/` | Image scaling and WebP conversion |
+| 模块 | 功能 |
+|------|------|
+| `proxy/` | HTTP/WebSocket 反向代理，带熔断器 |
+| `gitaly/` | Gitaly gRPC 客户端，支持 sidechannel (yamux 多路复用) |
+| `senddata/` | 响应注入器 (sendfile, sendurl, git archive, image resizer) |
+| `upload/` | Multipart 文件上传，带进度追踪 |
+| `git/` | Git Smart HTTP 协议处理 |
+| `secret/` | JWT/HMAC 共享密钥认证 |
+| `ratelimit/` | API 速率限制 |
+| `imageresizer/` | 图片缩放与 WebP 转换 |
 
-## License
+## 开源许可
 
-Same as GitLab. See [LICENSE](LICENSE).
+与 GitLab 一致。详见 [LICENSE](LICENSE)。
