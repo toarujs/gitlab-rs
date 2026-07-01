@@ -10,6 +10,7 @@ use axum::response::{IntoResponse, Response};
 use clap::Parser;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
@@ -441,6 +442,8 @@ async fn main() -> anyhow::Result<()> {
         )),
         unix_client: Arc::new(
             hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+                .pool_idle_timeout(Duration::from_secs(90))
+                .pool_max_idle_per_host(10)
                 .build(hyperlocal::UnixConnector)
         ),
     };

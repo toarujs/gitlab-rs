@@ -188,11 +188,8 @@ pub async fn proxy_handler(
                 .unwrap_or("");
 
             if content_type.contains("text/html") {
-                let new_response = if is_mobile {
-                    crate::html_injection::inject_into_response(response).await
-                } else {
-                    crate::html_injection::inject_into_response(response).await
-                };
+                let new_response =
+                    crate::html_injection::inject_into_response(response).await;
                 tracing::info!(
                     method = %method_str,
                     path = %path_str,
@@ -296,7 +293,7 @@ pub async fn proxy_request_streaming(
         }
     }
 
-    let cache_key = format!("{}:{}", method.as_str(), uri.path());
+    let cache_key = format!("{}:{}", method.as_str(), uri.path_and_query().map(|pq| pq.as_str()).unwrap_or(uri.path()));
 
     if let Some(ref cache) = state.cache {
         if method == Method::GET {
@@ -528,7 +525,7 @@ async fn proxy_via_tcp(
                         .and_then(|v| v.to_str().ok())
                         .unwrap_or("application/octet-stream")
                         .to_string();
-                    let cache_key = format!("{}:{}", method.as_str(), uri.path());
+                    let cache_key = format!("{}:{}", method.as_str(), uri.path_and_query().map(|pq| pq.as_str()).unwrap_or(uri.path()));
                     cache.set(cache_key, resp_body.clone(), content_type, None).await;
                 }
             }
