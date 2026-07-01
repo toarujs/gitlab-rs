@@ -10,6 +10,9 @@ ARG GIT_PASSWORD=
 
 WORKDIR /build
 
+# 安装编译依赖
+RUN apt-get update && apt-get install -y cmake protobuf-compiler && rm -rf /var/lib/apt/lists/*
+
 # 克隆源码 (支持公开/私有仓库)
 RUN if [ -n "${GIT_USERNAME}" ] && [ -n "${GIT_PASSWORD}" ]; then \
         REPO_AUTH=$(echo "${REPO_URL}" | sed "s|https://|https://${GIT_USERNAME}:${GIT_PASSWORD}@|"); \
