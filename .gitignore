@@ -1,0 +1,19 @@
+# Rust build artifacts
+/target/
+
+# Compiled binary
+docker/gitlab-workhorse-rs
+
+# Environment (keep .env.example as template)
+.env
+
+# SSH keys
+*.pub
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store

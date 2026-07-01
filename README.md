@@ -38,10 +38,10 @@ Internet / WAF
 ├── docker/
 │   ├── Dockerfile-server   # 手动构建 —— 需预先 cargo build
 │   ├── Dockerfile-oneclick # 一键构建 —— git clone + cargo build 全自动
-│   ├── docker-compose.yaml # 部署编排
 │   ├── entrypoint-server.sh
-│   ├── .env.example
 │   └── gitlab-rails-overrides/
+├── docker-compose.yaml     # 部署编排
+├── .env.example            # 环境变量模板
 ├── Cargo.toml
 └── Cargo.lock
 ```

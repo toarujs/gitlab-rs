@@ -59,8 +59,8 @@ RUN chmod +x /opt/gitlab/embedded/bin/gitlab-workhorse && \
 RUN echo 'gitlab_rails["lfs_enabled"] = true' >> /opt/gitlab/etc/gitlab.rb.template
 
 # 复制 compose 模板文件到镜像内，方便提取
-COPY --from=builder /build/docker/docker-compose.yaml /assets/docker-compose.yaml
-COPY --from=builder /build/docker/.env.example /assets/.env.example
+COPY --from=builder /build/docker-compose.yaml /assets/docker-compose.yaml
+COPY --from=builder /build/.env.example /assets/.env.example
 
 # 验证二进制可执行
 RUN /opt/gitlab/embedded/bin/gitlab-workhorse --version
