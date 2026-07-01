@@ -32,6 +32,7 @@ function clean_stale_pids() {
               -name pid \
               -o -name "*.pid" \
               -o -name "socket.?" \
+              -o -name "gitlab.socket" \
             \) \
             -delete ;
     done
@@ -94,9 +95,13 @@ then
     gitlab-ctl upgrade-check "${old_version}" "${new_version}"
 fi
 
-# Copy gitlab.rb for the first time
-if [[ ! -e /etc/gitlab/gitlab.rb ]]; then
-	echo "Installing gitlab.rb config..."
+# Generate gitlab.rb config
+if [[ -n "${GITLAB_OMNIBUS_CONFIG}" ]]; then
+	echo "Writing GITLAB_OMNIBUS_CONFIG to gitlab.rb..."
+	echo "${GITLAB_OMNIBUS_CONFIG}" > /etc/gitlab/gitlab.rb
+	chmod 0600 /etc/gitlab/gitlab.rb
+elif [[ ! -e /etc/gitlab/gitlab.rb ]]; then
+	echo "Installing gitlab.rb config from template..."
 	cp /opt/gitlab/etc/gitlab.rb.template /etc/gitlab/gitlab.rb
 	chmod 0600 /etc/gitlab/gitlab.rb
 fi
@@ -185,6 +190,10 @@ fi
 echo 'Reconfigure done. Stopping Nginx and Go Workhorse...'
 gitlab-ctl stop nginx 2>/dev/null || true
 /opt/gitlab/embedded/bin/sv stop gitlab-workhorse 2>/dev/null || true
+
+# Ensure Puma socket directory exists
+mkdir -p /var/opt/gitlab/gitlab-rails/sockets
+chown git:gitlab-www /var/opt/gitlab/gitlab-rails/sockets
 
 echo 'Starting Rust Workhorse...'
 exec /opt/gitlab/embedded/bin/gitlab-workhorse     --listen-addr "${WORKHORSE_LISTEN_ADDR:-0.0.0.0:80}"     --secret-path /opt/gitlab/embedded/service/gitlab-rails/.gitlab_workhorse_secret     --document-root /opt/gitlab/embedded/service/gitlab-rails/public     --auth-socket /var/opt/gitlab/gitlab-rails/sockets/gitlab.socket     --log-format json

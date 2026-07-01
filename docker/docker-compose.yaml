@@ -4,7 +4,7 @@ services:
     container_name: gitlab-rs
     restart: unless-stopped
     hostname: ${GITLAB_HOSTNAME:-gitlab.local}
-    shm_size: '256m'
+    shm_size: "256m"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost/health || exit 1"]
       interval: 30s
@@ -13,26 +13,27 @@ services:
       start_period: 300s
     environment:
       GITLAB_OMNIBUS_CONFIG: |
-        external_url '${EXTERNAL_URL:-http://localhost}'
-        gitlab_rails['gitlab_shell_ssh_port'] = ${SSH_PORT:-22}
-        postgresql['enable'] = false
-        gitlab_rails['db_username'] = "${DB_USER:-gitlab}"
-        gitlab_rails['db_password'] = "${DB_PASSWORD:-changeme}"
-        gitlab_rails['db_host'] = "db"
-        redis['enable'] = false
-        gitlab_rails['redis_host'] = "redis"
-        nginx['enable'] = false
+        external_url "${EXTERNAL_URL:-http://localhost}"
+        gitlab_rails["gitlab_shell_ssh_port"] = ${SSH_PORT:-22}
+        postgresql["enable"] = false
+        gitlab_rails["db_username"] = "${DB_USER:-gitlab}"
+        gitlab_rails["db_password"] = "${DB_PASSWORD:-changeme}"
+        gitlab_rails["db_host"] = "db"
+        redis["enable"] = false
+        gitlab_rails["redis_host"] = "redis"
+        nginx["enable"] = false
         gitlab_workhorse["enable"] = false
-        gitlab_rails['trusted_proxies'] = ['172.16.0.0/12', '192.168.0.0/16', '10.0.0.0/8']
-        gitlab_rails['lfs_enabled'] = true
-        gitlab_rails['initial_root_password'] = '${ROOT_PASSWORD:-changeme}'
+        puma["socket"] = "/var/opt/gitlab/gitlab-rails/sockets/gitlab.socket"
+        gitlab_rails["trusted_proxies"] = ["172.16.0.0/12", "192.168.0.0/16", "10.0.0.0/8"]
+        gitlab_rails["lfs_enabled"] = true
+        gitlab_rails["initial_root_password"] = "${ROOT_PASSWORD:-changeme}"
     ports:
       - "${HTTP_PORT:-80}:80"
       - "${SSH_PORT:-22}:22"
     volumes:
-      - config:/etc/gitlab
-      - logs:/var/log/gitlab
-      - data:/var/opt/gitlab
+      - ./config:/etc/gitlab
+      - ./logs:/var/log/gitlab
+      - ./data:/var/opt/gitlab
     depends_on:
       - db
       - redis
@@ -58,7 +59,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
       POSTGRES_DB: gitlabhq_production
     volumes:
-      - postgres:/var/lib/postgresql/data
+      - ./postgres:/var/lib/postgresql/data
     networks:
       - gitlab-rs-net
 
@@ -68,16 +69,11 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
-      - redis:/data
+      - ./redis:/data
     networks:
       - gitlab-rs-net
 
 volumes:
-  config:
-  logs:
-  data:
-  postgres:
-  redis:
   runner-config:
 
 networks:
