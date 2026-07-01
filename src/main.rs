@@ -3,7 +3,10 @@ use axum::{
     middleware,
     routing::{get, post, put},
 };
-use axum::http::{HeaderMap, StatusCode};
+use axum::body::Body;
+use axum::extract::{Path, State};
+use axum::http::{HeaderMap, Request, StatusCode};
+use axum::response::{IntoResponse, Response};
 use clap::Parser;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -681,6 +684,8 @@ async fn main() -> anyhow::Result<()> {
         // WebSocket routes
         .route("/-/cable", get(proxy::proxy_websocket))
         .route("/-/cable/*path", get(proxy::proxy_websocket))
+        // Serve static files from public/-/ (emojis, pwa-icons, etc.)
+        .route("/-/*path", get(serve_public_or_proxy))
         // Assets (static files with long cache)
         .route("/assets/*path", get(staticpages::serve_static_file))
         // Generic uploads (file upload endpoints)
@@ -903,6 +908,42 @@ async fn serve_unix(listener: tokio::net::UnixListener, app: Router) -> anyhow::
                 tracing::error!("Error serving unix connection: {}", e);
             }
         });
+    }
+}
+
+/// Try to serve a static file from public/-/ directory, otherwise proxy to Rails
+async fn serve_public_or_proxy(
+    State(app_state): State<AppState>,
+    Path(subpath): Path<String>,
+    req: Request<Body>,
+) -> Result<Response, StatusCode> {
+    let doc_root = &app_state.download.document_root;
+    let rel_path = format!("-/{}", subpath);
+    let file_path = doc_root.join(&rel_path);
+
+    match tokio::fs::metadata(&file_path).await {
+        Ok(meta) if meta.is_file() => {
+            let file = tokio::fs::File::open(&file_path).await.map_err(|e| {
+                tracing::error!("Failed to open public file {}: {}", rel_path, e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+
+            use tokio_util::io::ReaderStream;
+            let stream = ReaderStream::new(file);
+            let body = Body::from_stream(stream);
+
+            let mime = mime_guess::from_path(&file_path).first_or_octet_stream();
+            let mut headers = HeaderMap::new();
+            headers.insert("content-type", mime.to_string().parse().unwrap());
+            headers.insert("content-length", meta.len().to_string().parse().unwrap());
+            headers.insert("cache-control", "public, max-age=31536000, immutable".parse().unwrap());
+
+            Ok((StatusCode::OK, headers, body).into_response())
+        }
+        Ok(_) => Err(StatusCode::NOT_FOUND),
+        Err(_) => {
+            proxy::proxy_handler(State(app_state), req).await
+        }
     }
 }
 
