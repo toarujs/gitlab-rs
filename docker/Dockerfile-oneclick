@@ -1,0 +1,66 @@
+# =============================================================================
+# Stage 1: Clone repo and build Rust binary
+# =============================================================================
+FROM rust:1.91-bookworm AS builder
+
+ARG REPO_URL=https://github.com/toarujs/gitlab-rs.git
+ARG REPO_BRANCH=main
+ARG GIT_USERNAME=
+ARG GIT_PASSWORD=
+
+WORKDIR /build
+
+# 克隆源码 (支持公开/私有仓库)
+RUN if [ -n "${GIT_USERNAME}" ] && [ -n "${GIT_PASSWORD}" ]; then \
+        REPO_AUTH=$(echo "${REPO_URL}" | sed "s|https://|https://${GIT_USERNAME}:${GIT_PASSWORD}@|"); \
+    else \
+        REPO_AUTH="${REPO_URL}"; \
+    fi && \
+    git clone --depth 1 --branch "${REPO_BRANCH}" "${REPO_AUTH}" . 2>&1
+
+# 构建 Rust workhorse
+RUN cargo build --release && \
+    cp target/release/gitlab-workhorse-rs /build/gitlab-workhorse-rs
+
+# =============================================================================
+# Stage 2: 最终镜像
+# =============================================================================
+FROM gitlab/gitlab-ce:latest
+
+# 安装 WebP 运行时库
+RUN apt-get update && apt-get install -y libwebp7 && rm -rf /var/lib/apt/lists/*
+
+# 删除 Go Workhorse 和 Nginx
+RUN rm -f /opt/gitlab/embedded/bin/gitlab-workhorse && \
+    rm -f /opt/gitlab/embedded/sbin/nginx && \
+    rm -rf /opt/gitlab/embedded/nginx
+
+# 从构建阶段复制 Rust workhorse 二进制
+COPY --from=builder /build/gitlab-workhorse-rs /opt/gitlab/embedded/bin/gitlab-workhorse
+
+# 从构建阶段复制 entrypoint 脚本
+COPY --from=builder /build/docker/entrypoint-server.sh /assets/init-container
+
+# 从构建阶段复制 GitLab Rails 覆盖文件
+COPY --from=builder /build/docker/gitlab-rails-overrides/app/models/concerns/avatarable.rb \
+     /opt/gitlab/embedded/service/gitlab-rails/app/models/concerns/avatarable.rb
+COPY --from=builder /build/docker/gitlab-rails-overrides/app/views/shared/_choose_avatar_button.html.haml \
+     /opt/gitlab/embedded/service/gitlab-rails/app/views/shared/_choose_avatar_button.html.haml
+COPY --from=builder /build/docker/gitlab-rails-overrides/app/views/user_settings/profiles/show.html.haml \
+     /opt/gitlab/embedded/service/gitlab-rails/app/views/user_settings/profiles/show.html.haml
+COPY --from=builder /build/docker/gitlab-rails-overrides/locale/zh_CN/gitlab.po \
+     /opt/gitlab/embedded/service/gitlab-rails/locale/zh_CN/gitlab.po
+
+# 设置权限
+RUN chmod +x /opt/gitlab/embedded/bin/gitlab-workhorse && \
+    chmod +x /assets/init-container
+
+# 追加 LFS 配置到模板
+RUN echo 'gitlab_rails["lfs_enabled"] = true' >> /opt/gitlab/etc/gitlab.rb.template
+
+# 复制 compose 模板文件到镜像内，方便提取
+COPY --from=builder /build/docker/docker-compose.yaml /assets/docker-compose.yaml
+COPY --from=builder /build/docker/.env.example /assets/.env.example
+
+# 验证二进制可执行
+RUN /opt/gitlab/embedded/bin/gitlab-workhorse --version

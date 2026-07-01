@@ -1,130 +1,169 @@
-# GitLab Workhorse RS
+# gitlab-rs
 
-GitLab Workhorse 的 Rust 重写版本。直接替代 GitLab 官方的 Go Workhorse -- 位于客户端与 GitLab Rails / Gitaly 之间的智能 HTTP 代理。
-
-## 为什么用 Rust
-
-- 更低的内存占用
-- 更高的 CPU 效率
-- 零成本抽象的协议处理
-- 安全的异步并发 (tokio/async-await)
-
-## 功能特性
-
-- HTTP 反向代理至 GitLab Rails 后端
-- Git Smart HTTP 协议 (`git clone/push`)，通过 Gitaly gRPC + sidechannel
-- 大文件上传处理 (multipart，直达对象存储)
-- WebSocket 代理 (ActionCable)
-- 图片缩放与 WebP 转换
-- CI 制品处理 (ZIP 归档)
-- 包仓库代理 (Maven, NPM, PyPI, Debian, Helm 等)
-- API 速率限制、请求体大小限制、过载保护
-- Prometheus 指标导出
-- 基于 JWT 的 Rails 共享密钥认证
-- Gitaly 回调 socket 用于 hook 校验
-
-## 性能对比
-
-与 Go 原版 Workhorse 在同环境下的基准测试 (GitLab CE 19.0.2, 500 次 HTTP 健康检查):
-
-| 指标 | Rust | Go | 提升 |
-|------|------|-----|------|
-| 启动时间 | 197 ms | 2,677 ms | **13.6x** |
-| 空闲内存 (RSS) | 20,668 KB | 57,420 KB | **省 64%** |
-| 加戴内存 (RSS) | 23,432 KB | 62,888 KB | **省 63%** |
-| HTTP 延迟 (最小) | 6 ms | 42 ms | **7x** |
-| HTTP 延迟 (最大) | 146 ms | 2,755 ms | **19x** |
-| HTTP 延迟 (平均) | 11 ms | 296 ms | **27x** |
-
-## 快速开始
-
-```bash
-# 构建
-cargo build --release
-
-# 运行（最小配置）
-./target/release/gitlab-workhorse-rs \
-    --auth-backend http://localhost:8080 \
-    --secret-path ./.gitlab_workhorse_secret
-
-# 运行（连接 Gitaly）
-./gitlab-workhorse-rs \
-    --listen-addr 0.0.0.0:8181 \
-    --secret-path /path/to/.gitlab_workhorse_secret \
-    --auth-socket /var/opt/gitlab/gitlab-rails/sockets/gitlab.socket \
-    --document-root /opt/gitlab/embedded/service/gitlab-rails/public \
-    --gitaly-addr unix:/var/opt/gitlab/gitaly/gitaly.socket \
-    --gitaly-token "$(cat /var/opt/gitlab/gitaly/.gitlab_secret)" \
-    --log-format json
-```
-
-## 命令行参数
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `--listen-addr` | `localhost:8181` | 监听地址 |
-| `--listen-network` | `tcp` | 网络类型: tcp, tcp4, tcp6, unix |
-| `--secret-path` | `./.gitlab_workhorse_secret` | 与 Rails 共享的密钥文件 |
-| `--auth-backend` | `http://localhost:8080` | Rails 后端地址 |
-| `--auth-socket` | 空 | Rails 后端 Unix socket（优先） |
-| `--document-root` | `public` | 静态文件根目录 |
-| `--gitaly-addr` | 空 | Gitaly gRPC 地址 |
-| `--gitaly-token` | 空 | Gitaly 认证令牌 |
-| `--gitaly-callback-socket` | 空 | Gitaly 回调 Unix socket |
-| `--log-format` | `text` | 日志格式: text, json, structured, none |
-| `--log-file` | 空 | 日志文件路径 |
-| `--config` | 空 | TOML 配置文件路径 |
-| `--development-mode` | false | 开发模式 |
-| `--api-limit` | 0 | API 限流 (0 = 不限制) |
-| `--prometheus-listen-addr` | 空 | Prometheus 指标端点 |
-| `--proxy-headers-timeout` | 300s | 代理请求头超时 |
-| `--shutdown-timeout` | 60s | 优雅关闭超时 |
-| `--version` | | 打印版本 |
-
-## Docker
-
-```bash
-# 构建镜像
-docker build -t gitlab-rs -f docker/Dockerfile-server docker/
-
-# 或从 Docker Hub 拉取
-docker pull toarujs/gitlab-rs:latest
-
-# 配置环境变量
-cp docker/.env.example .env
-# 编辑 .env 修改密码和域名
-
-# 启动
-docker compose -f docker/docker-compose.yaml up -d
-```
-
-Docker 部署采用三容器架构 (workhorse + PostgreSQL + Redis)。通过 `.env` 文件配置域名、端口和密码。
+GitLab CE + Rust Workhorse 替换方案。用 Rust 重写的 HTTP 前端代理替代 Go 版 gitlab-workhorse 和 nginx，单一二进制直接处理 HTTP 流量，通过 unix socket 转发到 Puma。
 
 ## 架构
 
 ```
-客户端 --> Workhorse RS --> Rails (认证预处理)
-                |
-                +---------> Gitaly (Git 操作，gRPC)
-                |
-                +---------> 对象存储 (直传上传/下载)
-                |
-                +---------> 本地磁盘 (静态文件、仓库)
+Internet / WAF
+    │
+    ▼
+┌─────────────────────────┐
+│  Rust Workhorse (PID 1)  │  :80
+│  - 反向代理              │
+│  - Gitaly sidechannel    │
+│  - 缓存 / 限流           │
+│  - HTML 注入             │
+└───────────┬─────────────┘
+            │ unix socket
+            ▼
+┌─────────────────────────┐
+│  Puma (Rails)            │  48 workers
+│  - GitLab CE            │
+│  - 仅监听 unix socket   │
+└─────────────────────────┘
+            │
+    ┌───────┴───────┐
+    ▼               ▼
+┌────────┐    ┌──────────┐
+│  PG 17  │    │ Redis 7  │
+└────────┘    └──────────┘
 ```
 
-核心模块：
+## 目录结构
 
-| 模块 | 功能 |
+```
+/
+├── src/                    # Rust workhorse 源码
+├── docker/
+│   ├── Dockerfile-server   # 手动构建 —— 需预先 cargo build
+│   ├── Dockerfile-oneclick # 一键构建 —— git clone + cargo build 全自动
+│   ├── docker-compose.yaml # 部署编排
+│   ├── entrypoint-server.sh
+│   ├── .env.example
+│   └── gitlab-rails-overrides/
+├── Cargo.toml
+└── Cargo.lock
+```
+
+## 构建
+
+### 一键构建（推荐）
+
+无需本地 Rust 环境，Docker 内完成克隆、编译、打包：
+
+```bash
+# 公开仓库
+docker build -f docker/Dockerfile-oneclick -t toarujs/gitlab-rs:latest .
+
+# 私有仓库
+docker build -f docker/Dockerfile-oneclick \
+  --build-arg REPO_URL=https://gitlab.example.com/user/repo.git \
+  --build-arg GIT_USERNAME=oauth2 \
+  --build-arg GIT_PASSWORD=glpat-xxx \
+  --build-arg REPO_BRANCH=main \
+  -t toarujs/gitlab-rs:latest .
+```
+
+| ARG | 默认值 | 说明 |
+|-----|--------|------|
+| `REPO_URL` | `https://github.com/toarujs/gitlab-rs.git` | 源码仓库 |
+| `REPO_BRANCH` | `main` | 分支名 |
+| `GIT_USERNAME` | (空) | 私有仓库用户名 |
+| `GIT_PASSWORD` | (空) | 私有仓库密码/Token |
+
+### 手动构建
+
+适用于已有本地 Rust 工具链的场景：
+
+```bash
+cargo build --release
+cp target/release/gitlab-workhorse-rs docker/
+docker build -f docker/Dockerfile-server -t toarujs/gitlab-rs:latest docker/
+```
+
+## 部署
+
+### 新部署
+
+```bash
+# 提取 compose 模板（一键构建镜像已内置，可选）
+docker run --rm toarujs/gitlab-rs:latest cat /assets/docker-compose.yaml > docker-compose.yaml
+docker run --rm toarujs/gitlab-rs:latest cat /assets/.env.example > .env
+
+# 编辑 .env 填写实际值
+vim .env
+
+# 创建数据目录
+mkdir -p config data logs postgres redis
+
+# 启动
+docker compose up -d
+```
+
+等待 2-3 分钟（`gitlab-ctl reconfigure` + Puma 预加载），访问 `http://<host>:<HTTP_PORT>` 看到登录页即部署成功。
+
+### 数据迁移
+
+将旧 GitLab 部署的数据目录复制到 compose 所在目录即可：
+
+```bash
+# 旧数据路径示例
+cp -a /old-deploy/config/ ./config/
+cp -a /old-deploy/data/   ./data/
+cp -a /old-deploy/logs/   ./logs/
+cp -a /old-deploy/postgres/ ./postgres/
+cp -a /old-deploy/redis/  ./redis/
+
+docker compose up -d
+```
+
+数据迁移后 entrypoint 会自动用 `GITLAB_OMNIBUS_CONFIG` 覆盖 `gitlab.rb`，`gitlab-secrets.json` 保留原有密钥（CSRF/会话不会失效）。
+
+### .env 配置
+
+```bash
+GITLAB_HOSTNAME=bak.toarujs.com
+EXTERNAL_URL=https://bak.toarujs.com:9071
+HTTP_PORT=9070
+SSH_PORT=9022
+DB_USER=gitlab
+DB_PASSWORD=<your-password>
+ROOT_PASSWORD=<root-password>
+```
+
+### 容器端口
+
+| 端口 | 用途 |
 |------|------|
-| `proxy/` | HTTP/WebSocket 反向代理，带熔断器 |
-| `gitaly/` | Gitaly gRPC 客户端，支持 sidechannel (yamux 多路复用) |
-| `senddata/` | 响应注入器 (sendfile, sendurl, git archive, image resizer) |
-| `upload/` | Multipart 文件上传，带进度追踪 |
-| `git/` | Git Smart HTTP 协议处理 |
-| `secret/` | JWT/HMAC 共享密钥认证 |
-| `ratelimit/` | API 速率限制 |
-| `imageresizer/` | 图片缩放与 WebP 转换 |
+| `HTTP_PORT` | HTTP（Rust workhorse 直接处理） |
+| `SSH_PORT` | SSH（git clone） |
 
-## 开源许可
+## 数据卷
 
-与 GitLab 一致。详见 [LICENSE](LICENSE)。
+所有数据使用 bind mount，全部在 compose 所在目录下：
+
+| 目录 | 挂载路径 | 内容 |
+|------|----------|------|
+| `./config/` | `/etc/gitlab` | gitlab.rb, gitlab-secrets.json, SSH 密钥 |
+| `./data/` | `/var/opt/gitlab` | 仓库、上传、构建产物 |
+| `./logs/` | `/var/log/gitlab` | 日志 |
+| `./postgres/` | `/var/lib/postgresql/data` | 数据库 |
+| `./redis/` | `/data` | 缓存/会话 |
+
+## 术语说明
+
+| 名称 | 全称 | 说明 |
+|------|------|------|
+| CE | Community Edition | 社区版 |
+| EE | Enterprise Edition | 企业版 |
+| Puma | — | GitLab 使用的 Ruby 应用服务器 |
+| Rails | Ruby on Rails | GitLab 后端 Web 框架 |
+| Omnibus | — | GitLab 的一体化打包方案 |
+| Sidekiq | — | GitLab 的后台任务处理器 |
+| Gitaly | — | Git 仓库存储服务 |
+| LFS | Large File Storage | 大文件存储 |
+| WAF | Web Application Firewall | Web 应用防火墙，如 SafeLine |
+| snowplow | — | 用户行为分析埋点系统 |
+| CSRF | Cross-Site Request Forgery | 跨站请求伪造 |
+| PWA | Progressive Web App | 渐进式 Web 应用 |
