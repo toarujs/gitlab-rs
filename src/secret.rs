@@ -158,7 +158,7 @@ pub fn add_workhorse_headers(headers: &mut HeaderMap, secret: &Secret) -> Result
     if !headers.contains_key("x-forwarded-proto") {
         headers.insert(
             "x-forwarded-proto",
-            HeaderValue::from_static("http"),
+            HeaderValue::from_static("https"),
         );
     }
 
