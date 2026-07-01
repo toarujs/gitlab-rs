@@ -1,9 +1,6 @@
 use axum::body::Body;
 use axum::response::Response;
-use flate2::write::GzEncoder;
-use flate2::Compression;
 use http_body_util::BodyExt;
-use std::io::Write;
 
 pub const LANG_SWITCHER_CSS: &str = r#"
 #lang-switcher{position:fixed;bottom:20px;right:20px;z-index:9999;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
@@ -193,32 +190,22 @@ pub async fn inject_into_response(response: Response) -> Response {
     let injected = inject_lang_data(&injected);
 
     let mut new_parts = parts;
-    new_parts.headers.remove("transfer-encoding");
-
-    let mut encoder = GzEncoder::new(Vec::with_capacity(injected.len()), Compression::fast());
-    if let Err(_) = encoder.write_all(injected.as_bytes()) {
-        return Response::builder()
-            .status(502)
-            .body(Body::from("Bad Gateway"))
-            .unwrap();
-    }
-    let compressed = match encoder.finish() {
-        Ok(v) => v,
-        Err(_) => return Response::builder()
-            .status(502)
-            .body(Body::from("Bad Gateway"))
-            .unwrap(),
-    };
+    let new_len = injected.len();
     new_parts.headers.insert(
         "content-length",
-        compressed.len().to_string().parse().unwrap(),
+        new_len.to_string().parse().unwrap(),
     );
-    new_parts.headers.insert(
-        "content-encoding",
-        "gzip".parse().unwrap(),
-    );
+    new_parts.headers.remove("content-encoding");
+    new_parts.headers.remove("transfer-encoding");
 
-    Response::from_parts(new_parts, Body::from(compressed))
+    // Add Link headers for critical resource preloading
+    let link_headers = [
+        "</-/mobile.css>; rel=preload; as=style",
+        "</assets/application.css>; rel=preload; as=style",
+    ].join(", ");
+    new_parts.headers.insert("link", link_headers.parse().unwrap());
+
+    Response::from_parts(new_parts, Body::from(injected))
 }
 
 pub fn inject_lang_data(html: &str) -> String {

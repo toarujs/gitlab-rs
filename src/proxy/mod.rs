@@ -24,6 +24,41 @@ use super::senddata;
 use super::state::AppState;
 use super::transport;
 
+/// Generate optimized cache key - strip cache-busting query params for static assets
+fn generate_cache_key(method: &Method, uri: &Uri) -> String {
+    let path = uri.path();
+    let pq = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or(path);
+    
+    // For static assets, strip common cache-busting query parameters
+    let is_static = path.ends_with(".js") || path.ends_with(".css") || 
+                    path.ends_with(".png") || path.ends_with(".jpg") || 
+                    path.ends_with(".jpeg") || path.ends_with(".gif") || 
+                    path.ends_with(".svg") || path.ends_with(".ico") ||
+                    path.ends_with(".woff") || path.ends_with(".woff2") ||
+                    path.ends_with(".ttf") || path.ends_with(".eot");
+    
+    if is_static {
+        if let Some(query) = uri.query() {
+            // Strip common cache-busting params (v, timestamp, hash)
+            let params: Vec<&str> = query.split('&')
+                .filter(|p| {
+                    let key = p.split('=').next().unwrap_or("");
+                    !matches!(key, "v" | "_" | "timestamp" | "hash" | "cb")
+                })
+                .collect();
+            if params.is_empty() {
+                format!("{}:{}", method.as_str(), path)
+            } else {
+                format!("{}:{}?{}", method.as_str(), path, params.join("&"))
+            }
+        } else {
+            format!("{}:{}", method.as_str(), path)
+        }
+    } else {
+        format!("{}:{}", method.as_str(), pq)
+    }
+}
+
 pub type UnixSocketClient = hyper_util::client::legacy::Client<hyperlocal::UnixConnector, http_body_util::Full<bytes::Bytes>>;
 
 #[derive(Debug, Clone)]
@@ -293,7 +328,8 @@ pub async fn proxy_request_streaming(
         }
     }
 
-    let cache_key = format!("{}:{}", method.as_str(), uri.path_and_query().map(|pq| pq.as_str()).unwrap_or(uri.path()));
+    // Generate optimized cache key - strip cache-busting params for static assets
+    let cache_key = generate_cache_key(&method, &uri);
 
     if let Some(ref cache) = state.cache {
         if method == Method::GET {
@@ -303,6 +339,29 @@ pub async fn proxy_request_streaming(
                 let mut response_headers = HeaderMap::new();
                 response_headers.insert("content-type", entry.content_type.parse().unwrap());
                 response_headers.insert("x-cache", "HIT".parse().unwrap());
+                // Restore cached headers (cache-control, etag, last-modified, etc.)
+                for (key, value) in &entry.headers {
+                    if let (Ok(name), Ok(val)) = (key.parse::<HeaderName>(), value.parse::<HeaderValue>()) {
+                        // Add stale-while-revalidate to cache-control headers
+                        if name.as_str().eq_ignore_ascii_case("cache-control") {
+                            let enhanced = format!("{}, stale-while-revalidate=86400", val.to_str().unwrap_or(""));
+                            response_headers.insert(name, enhanced.parse().unwrap());
+                        } else {
+                            response_headers.insert(name, val);
+                        }
+                    }
+                }
+                // Generate ETag based on content hash for conditional requests
+                let etag = format!("\"{:x}\"", md5::compute(&entry.data));
+                response_headers.insert("etag", etag.parse().unwrap());
+                // Check If-None-Match header for conditional request
+                if let Some(if_none_match) = headers.get("if-none-match") {
+                    if let Ok(client_etag) = if_none_match.to_str() {
+                        if client_etag == etag || client_etag == "*" {
+                            return Ok(StatusCode::NOT_MODIFIED.into_response());
+                        }
+                    }
+                }
                 return Ok((StatusCode::OK, response_headers, entry.data.to_vec()).into_response());
             }
         }
@@ -438,7 +497,7 @@ async fn proxy_via_tcp(
             }
 
             // Apply forwardheaders filtering to response
-            let filtered_response_headers = forwardheaders::forward_response_headers(
+            let mut filtered_response_headers = forwardheaders::forward_response_headers(
                 &response_headers,
                 None,
                 &[],
@@ -525,8 +584,43 @@ async fn proxy_via_tcp(
                         .and_then(|v| v.to_str().ok())
                         .unwrap_or("application/octet-stream")
                         .to_string();
-                    let cache_key = format!("{}:{}", method.as_str(), uri.path_and_query().map(|pq| pq.as_str()).unwrap_or(uri.path()));
-                    cache.set(cache_key, resp_body.clone(), content_type, None).await;
+                    let cache_key = generate_cache_key(&method, &uri);
+                    let cache_headers: Vec<(String, String)> = filtered_response_headers
+                        .iter()
+                        .filter_map(|(k, v)| {
+                            let key = k.as_str().to_lowercase();
+                            match key.as_str() {
+                                "cache-control" | "etag" | "last-modified" | "content-type"
+                                | "x-content-type-options" | "x-frame-options" | "x-xss-protection"
+                                | "x-permitted-cross-domain-policies" | "referrer-policy"
+                                | "permissions-policy" | "x-ua-compatible" | "x-gitlab-meta"
+                                | "x-request-id" | "x-download-options" => {
+                                    v.to_str().ok().map(|s| (k.as_str().to_string(), s.to_string()))
+                                }
+                                _ => None,
+                            }
+                        })
+                        .collect();
+                    cache.set(cache_key, resp_body.clone(), content_type, cache_headers, None).await;
+                }
+            }
+
+            // Add ETag header for successful GET responses if not already present
+            if method == Method::GET && status.is_success() && !filtered_response_headers.contains_key("etag") {
+                let etag = format!("\"{:x}\"", md5::compute(&resp_body));
+                filtered_response_headers.insert("etag", etag.parse().unwrap());
+            }
+
+            // Handle conditional requests (If-None-Match)
+            if method == Method::GET && status.is_success() {
+                if let Some(if_none_match) = headers.get("if-none-match") {
+                    if let Some(etag) = filtered_response_headers.get("etag") {
+                        if let (Ok(client_etag), Ok(server_etag)) = (if_none_match.to_str(), etag.to_str()) {
+                            if client_etag == server_etag || client_etag == "*" {
+                                return Ok(StatusCode::NOT_MODIFIED.into_response());
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1179,5 +1273,53 @@ mod tests {
         cb.record_failure().await;
         cb.record_success().await;
         assert!(!cb.is_open().await);
+    }
+
+    #[test]
+    fn test_generate_cache_key_static_asset_strips_version() {
+        let method = Method::GET;
+        let uri: Uri = "/assets/app.js?v=12345".parse().unwrap();
+        let key = generate_cache_key(&method, &uri);
+        assert_eq!(key, "GET:/assets/app.js");
+    }
+
+    #[test]
+    fn test_generate_cache_key_static_asset_keeps_other_params() {
+        let method = Method::GET;
+        let uri: Uri = "/assets/app.js?v=12345&lang=en".parse().unwrap();
+        let key = generate_cache_key(&method, &uri);
+        assert_eq!(key, "GET:/assets/app.js?lang=en");
+    }
+
+    #[test]
+    fn test_generate_cache_key_api_keeps_query() {
+        let method = Method::GET;
+        let uri: Uri = "/api/v4/projects?page=1".parse().unwrap();
+        let key = generate_cache_key(&method, &uri);
+        assert_eq!(key, "GET:/api/v4/projects?page=1");
+    }
+
+    #[test]
+    fn test_generate_cache_key_css_asset() {
+        let method = Method::GET;
+        let uri: Uri = "/assets/style.css?cb=abc123".parse().unwrap();
+        let key = generate_cache_key(&method, &uri);
+        assert_eq!(key, "GET:/assets/style.css");
+    }
+
+    #[test]
+    fn test_generate_cache_key_image_asset() {
+        let method = Method::GET;
+        let uri: Uri = "/uploads/avatar.png?_=1234567890".parse().unwrap();
+        let key = generate_cache_key(&method, &uri);
+        assert_eq!(key, "GET:/uploads/avatar.png");
+    }
+
+    #[test]
+    fn test_generate_cache_key_no_query() {
+        let method = Method::GET;
+        let uri: Uri = "/assets/app.js".parse().unwrap();
+        let key = generate_cache_key(&method, &uri);
+        assert_eq!(key, "GET:/assets/app.js");
     }
 }

@@ -82,6 +82,7 @@ clap = { version = "4", features = ["derive"] }
 
 # Encoding
 hex = "0.4"
+md5 = "0.7"
 
 # Yamux multiplexer (for Gitaly backchannel)
 yamux = "0.14"

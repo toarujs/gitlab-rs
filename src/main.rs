@@ -429,9 +429,9 @@ async fn main() -> anyhow::Result<()> {
             None
         },
         cache: Some(cache::CacheState::new(
-            1000,
+            5000,
             10 * 1024 * 1024, // max 10MB per cached entry
-            std::time::Duration::from_secs(300),
+            std::time::Duration::from_secs(600),
         )),
         memory_pool: memory::MemoryPool::default(),
         injecters,
@@ -605,27 +605,42 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/api/v4/projects",
-            post(proxy::proxy_handler).put(proxy::proxy_handler),
+            get(proxy::proxy_handler)
+                .post(proxy::proxy_handler)
+                .put(proxy::proxy_handler)
+                .delete(proxy::proxy_handler),
         )
         .route(
             "/api/v4/projects/:project_id",
-            put(proxy::proxy_handler),
+            get(proxy::proxy_handler)
+                .put(proxy::proxy_handler)
+                .delete(proxy::proxy_handler),
         )
         .route(
             "/api/v4/groups",
-            post(proxy::proxy_handler).put(proxy::proxy_handler),
+            get(proxy::proxy_handler)
+                .post(proxy::proxy_handler)
+                .put(proxy::proxy_handler)
+                .delete(proxy::proxy_handler),
         )
         .route(
             "/api/v4/groups/:group_id",
-            put(proxy::proxy_handler),
+            get(proxy::proxy_handler)
+                .put(proxy::proxy_handler)
+                .delete(proxy::proxy_handler),
         )
         .route(
             "/api/v4/organizations",
-            post(proxy::proxy_handler).put(proxy::proxy_handler),
+            get(proxy::proxy_handler)
+                .post(proxy::proxy_handler)
+                .put(proxy::proxy_handler)
+                .delete(proxy::proxy_handler),
         )
         .route(
             "/api/v4/organizations/:org_id",
-            put(proxy::proxy_handler),
+            get(proxy::proxy_handler)
+                .put(proxy::proxy_handler)
+                .delete(proxy::proxy_handler),
         )
         .route(
             "/api/v4/user/avatar",
@@ -633,21 +648,29 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/api/v4/users",
-            post(proxy::proxy_handler),
+            get(proxy::proxy_handler)
+                .post(proxy::proxy_handler)
+                .put(proxy::proxy_handler)
+                .delete(proxy::proxy_handler),
         )
         .route(
             "/api/v4/users/:user_id",
-            put(proxy::proxy_handler),
+            get(proxy::proxy_handler)
+                .put(proxy::proxy_handler)
+                .delete(proxy::proxy_handler),
         )
         // Remote mirrors
         .route(
             "/api/v4/projects/:project_id/remote_mirrors",
-            post(proxy::proxy_handler),
+            get(proxy::proxy_handler).post(proxy::proxy_handler),
         )
         // Topics
         .route(
             "/api/v4/topics",
-            post(proxy::proxy_handler).put(proxy::proxy_handler),
+            get(proxy::proxy_handler)
+                .post(proxy::proxy_handler)
+                .put(proxy::proxy_handler)
+                .delete(proxy::proxy_handler),
         )
         // Import
         .route(
@@ -727,7 +750,7 @@ async fn main() -> anyhow::Result<()> {
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
                 .layer(CorsLayer::permissive())
-                .layer(CompressionLayer::new()),
+                .layer(CompressionLayer::new().br(true).zstd(true)),
         )
         .layer(middleware::from_fn(correlation::correlation_id_middleware))
         .layer(middleware::from_fn(rejectmethods::reject_methods_middleware))

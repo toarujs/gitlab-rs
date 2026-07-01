@@ -126,6 +126,59 @@ pub async fn serve_static_file(
     Ok((StatusCode::OK, response_headers, body).into_response())
 }
 
+/// Serve static files from public/-/<path> (e.g., /-/emojis, /-/pwa-icons).
+/// Falls through to 404 if file not found — caller should chain with proxy handler.
+pub async fn serve_public_file(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(subpath): Path<String>,
+) -> Result<Response, StatusCode> {
+    let doc_root = &state.download.document_root;
+    let path = format!("-/{}", subpath);
+    let client_encoding = compression::negotiate_encoding(&headers);
+
+    let resources = compression::find_compression_resources(doc_root, &path, client_encoding).await;
+
+    if resources.error.is_some() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let content_type = resources.content_type.as_deref().unwrap_or("application/octet-stream");
+    let cache_control = resources.cache_control.as_deref().unwrap_or("public, max-age=3600");
+
+    if let Some(comp_ref) = resources.compressions.first() {
+        let content = compression::read_file_to_bytes(&comp_ref.path).await.map_err(|e| {
+            tracing::error!("Failed to read compressed file: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+        let mut response_headers = HeaderMap::new();
+        response_headers.insert("content-type", content_type.parse().unwrap());
+        response_headers.insert("content-length", comp_ref.size.to_string().parse().unwrap());
+        response_headers.insert("content-encoding", comp_ref.encoding.content_encoding().parse().unwrap());
+        response_headers.insert("cache-control", cache_control.parse().unwrap());
+        response_headers.insert("vary", "Accept-Encoding".parse().unwrap());
+
+        return Ok((StatusCode::OK, response_headers, Body::from(content)).into_response());
+    }
+
+    let file = tokio::fs::File::open(resources.original_path.as_ref().unwrap()).await.map_err(|e| {
+        tracing::error!("Failed to open static file: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let stream = ReaderStream::new(file);
+    let body = Body::from_stream(stream);
+
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert("content-type", content_type.parse().unwrap());
+    response_headers.insert("content-length", resources.original_size.to_string().parse().unwrap());
+    response_headers.insert("cache-control", cache_control.parse().unwrap());
+    response_headers.insert("vary", "Accept-Encoding".parse().unwrap());
+
+    Ok((StatusCode::OK, response_headers, body).into_response())
+}
+
 pub struct ErrorPage;
 
 impl ErrorPage {

@@ -2,6 +2,7 @@
 
 use bytes::Bytes;
 use moka::future::Cache;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,6 +17,7 @@ pub struct CacheState {
 pub struct CacheEntry {
     pub data: Bytes,
     pub content_type: String,
+    pub headers: Vec<(String, String)>,
     pub hits: Arc<AtomicU64>,
 }
 
@@ -37,13 +39,14 @@ impl CacheState {
         })
     }
 
-    pub async fn set(&self, key: String, data: Bytes, content_type: String, _ttl: Option<Duration>) {
+    pub async fn set(&self, key: String, data: Bytes, content_type: String, headers: Vec<(String, String)>, _ttl: Option<Duration>) {
         if data.len() > self.max_entry_bytes {
             return;
         }
         let entry = CacheEntry {
             data,
             content_type,
+            headers,
             hits: Arc::new(AtomicU64::new(0)),
         };
         self.cache.insert(key, entry).await;
