@@ -10,7 +10,7 @@ RUN rm -f /opt/gitlab/embedded/sbin/nginx && rm -rf /opt/gitlab/embedded/nginx
 COPY gitlab-workhorse-rs /opt/gitlab/embedded/bin/gitlab-workhorse
 
 # 复制启动脚本 (覆盖官方 entrypoint)
-COPY entrypoint.sh /assets/init-container
+COPY entrypoint-server.sh /assets/init-container
 
 # 覆盖 GitLab Rails 源码：头像限制改为 10 MiB
 COPY gitlab-rails-overrides/app/models/concerns/avatarable.rb \

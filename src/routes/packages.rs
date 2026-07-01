@@ -1,12 +1,10 @@
-#![allow(dead_code, unused_imports)]
-
 use axum::{
     body::Body,
     extract::{Request, State},
-    http::{Method, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
 };
-use crate::proxy::{self, ProxyState};
+use crate::proxy;
 
 const PACKAGE_MAX_SIZE: usize = 5 * 1024 * 1024 * 1024; // 5GB
 
@@ -25,161 +23,35 @@ fn check_package_size(req: &Request<Body>) -> Result<(), Response> {
     }
 }
 
-pub async fn handle_maven_upload(
-    State(state): State<crate::state::AppState>,
-    req: Request<Body>,
-) -> Response {
-    if let Err(resp) = check_package_size(&req) {
-        return resp;
-    }
-    match proxy::proxy_handler(State(state), req).await {
-        Ok(resp) => resp,
-        Err(status) => (status, "").into_response(),
-    }
+macro_rules! package_upload_handler {
+    ($name:ident) => {
+        pub async fn $name(
+            State(state): State<crate::state::AppState>,
+            req: Request<Body>,
+        ) -> Response {
+            if let Err(resp) = check_package_size(&req) {
+                return resp;
+            }
+            match proxy::proxy_handler(State(state), req).await {
+                Ok(resp) => resp,
+                Err(status) => (status, "").into_response(),
+            }
+        }
+    };
 }
 
-pub async fn handle_npm_upload(
-    State(state): State<crate::state::AppState>,
-    req: Request<Body>,
-) -> Response {
-    if let Err(resp) = check_package_size(&req) {
-        return resp;
-    }
-    match proxy::proxy_handler(State(state), req).await {
-        Ok(resp) => resp,
-        Err(status) => (status, "").into_response(),
-    }
-}
-
-pub async fn handle_nuget_upload(
-    State(state): State<crate::state::AppState>,
-    req: Request<Body>,
-) -> Response {
-    if let Err(resp) = check_package_size(&req) {
-        return resp;
-    }
-    match proxy::proxy_handler(State(state), req).await {
-        Ok(resp) => resp,
-        Err(status) => (status, "").into_response(),
-    }
-}
-
-pub async fn handle_conan_upload(
-    State(state): State<crate::state::AppState>,
-    req: Request<Body>,
-) -> Response {
-    if let Err(resp) = check_package_size(&req) {
-        return resp;
-    }
-    match proxy::proxy_handler(State(state), req).await {
-        Ok(resp) => resp,
-        Err(status) => (status, "").into_response(),
-    }
-}
-
-pub async fn handle_generic_upload(
-    State(state): State<crate::state::AppState>,
-    req: Request<Body>,
-) -> Response {
-    if let Err(resp) = check_package_size(&req) {
-        return resp;
-    }
-    match proxy::proxy_handler(State(state), req).await {
-        Ok(resp) => resp,
-        Err(status) => (status, "").into_response(),
-    }
-}
-
-pub async fn handle_pypi_upload(
-    State(state): State<crate::state::AppState>,
-    req: Request<Body>,
-) -> Response {
-    if let Err(resp) = check_package_size(&req) {
-        return resp;
-    }
-    match proxy::proxy_handler(State(state), req).await {
-        Ok(resp) => resp,
-        Err(status) => (status, "").into_response(),
-    }
-}
-
-pub async fn handle_debian_upload(
-    State(state): State<crate::state::AppState>,
-    req: Request<Body>,
-) -> Response {
-    if let Err(resp) = check_package_size(&req) {
-        return resp;
-    }
-    match proxy::proxy_handler(State(state), req).await {
-        Ok(resp) => resp,
-        Err(status) => (status, "").into_response(),
-    }
-}
-
-pub async fn handle_rpm_upload(
-    State(state): State<crate::state::AppState>,
-    req: Request<Body>,
-) -> Response {
-    if let Err(resp) = check_package_size(&req) {
-        return resp;
-    }
-    match proxy::proxy_handler(State(state), req).await {
-        Ok(resp) => resp,
-        Err(status) => (status, "").into_response(),
-    }
-}
-
-pub async fn handle_rubygems_upload(
-    State(state): State<crate::state::AppState>,
-    req: Request<Body>,
-) -> Response {
-    if let Err(resp) = check_package_size(&req) {
-        return resp;
-    }
-    match proxy::proxy_handler(State(state), req).await {
-        Ok(resp) => resp,
-        Err(status) => (status, "").into_response(),
-    }
-}
-
-pub async fn handle_terraform_upload(
-    State(state): State<crate::state::AppState>,
-    req: Request<Body>,
-) -> Response {
-    if let Err(resp) = check_package_size(&req) {
-        return resp;
-    }
-    match proxy::proxy_handler(State(state), req).await {
-        Ok(resp) => resp,
-        Err(status) => (status, "").into_response(),
-    }
-}
-
-pub async fn handle_helm_upload(
-    State(state): State<crate::state::AppState>,
-    req: Request<Body>,
-) -> Response {
-    if let Err(resp) = check_package_size(&req) {
-        return resp;
-    }
-    match proxy::proxy_handler(State(state), req).await {
-        Ok(resp) => resp,
-        Err(status) => (status, "").into_response(),
-    }
-}
-
-pub async fn handle_ml_models_upload(
-    State(state): State<crate::state::AppState>,
-    req: Request<Body>,
-) -> Response {
-    if let Err(resp) = check_package_size(&req) {
-        return resp;
-    }
-    match proxy::proxy_handler(State(state), req).await {
-        Ok(resp) => resp,
-        Err(status) => (status, "").into_response(),
-    }
-}
+package_upload_handler!(handle_maven_upload);
+package_upload_handler!(handle_npm_upload);
+package_upload_handler!(handle_nuget_upload);
+package_upload_handler!(handle_conan_upload);
+package_upload_handler!(handle_generic_upload);
+package_upload_handler!(handle_pypi_upload);
+package_upload_handler!(handle_debian_upload);
+package_upload_handler!(handle_rpm_upload);
+package_upload_handler!(handle_rubygems_upload);
+package_upload_handler!(handle_terraform_upload);
+package_upload_handler!(handle_helm_upload);
+package_upload_handler!(handle_ml_models_upload);
 
 #[cfg(test)]
 mod tests {

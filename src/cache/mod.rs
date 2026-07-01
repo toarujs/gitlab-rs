@@ -10,6 +10,7 @@ use tokio::sync::RwLock;
 pub struct CacheState {
     pub entries: Arc<RwLock<HashMap<String, CacheEntry>>>,
     pub max_size: usize,
+    pub max_entry_bytes: usize,
     pub default_ttl: Duration,
 }
 
@@ -23,10 +24,11 @@ pub struct CacheEntry {
 }
 
 impl CacheState {
-    pub fn new(max_size: usize, default_ttl: Duration) -> Self {
+    pub fn new(max_size: usize, max_entry_bytes: usize, default_ttl: Duration) -> Self {
         Self {
             entries: Arc::new(RwLock::new(HashMap::new())),
             max_size,
+            max_entry_bytes,
             default_ttl,
         }
     }
@@ -51,11 +53,15 @@ impl CacheState {
     }
 
     pub async fn set(&self, key: String, data: Bytes, content_type: String, ttl: Option<Duration>) {
+        // Skip caching responses larger than the per-entry limit
+        if data.len() > self.max_entry_bytes {
+            return;
+        }
+
         let mut entries = self.entries.write().await;
 
-        // Check if cache is full
+        // Check if cache is full (by entry count)
         if entries.len() >= self.max_size {
-            // Remove oldest entry
             if let Some(oldest_key) = entries.keys().next().cloned() {
                 entries.remove(&oldest_key);
             }

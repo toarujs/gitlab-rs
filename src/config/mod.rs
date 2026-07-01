@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
 use url::Url;
@@ -67,7 +68,7 @@ pub enum LogFormat {
     None,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct RedisConfig {
     pub url: String,
     pub sentinel: Option<Vec<String>>,
@@ -75,6 +76,19 @@ pub struct RedisConfig {
     pub sentinel_username: Option<String>,
     pub sentinel_password: Option<String>,
     pub tls: Option<TlsConfig>,
+}
+
+impl std::fmt::Debug for RedisConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RedisConfig")
+            .field("url", &self.url)
+            .field("sentinel", &self.sentinel)
+            .field("sentinel_master", &self.sentinel_master)
+            .field("sentinel_username", &self.sentinel_username)
+            .field("sentinel_password", &self.sentinel_password.as_ref().map(|_| "***"))
+            .field("tls", &self.tls)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,7 +115,7 @@ pub enum StorageProvider {
     Google,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct S3Config {
     pub aws_access_key_id: String,
     pub aws_secret_access_key: String,
@@ -109,17 +123,47 @@ pub struct S3Config {
     pub endpoint: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl fmt::Debug for S3Config {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("S3Config")
+            .field("aws_access_key_id", &self.aws_access_key_id)
+            .field("aws_secret_access_key", &"***")
+            .field("region", &self.region)
+            .field("endpoint", &self.endpoint)
+            .finish()
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct AzureConfig {
     pub storage_account_name: String,
     pub storage_access_key: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl fmt::Debug for AzureConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AzureConfig")
+            .field("storage_account_name", &self.storage_account_name)
+            .field("storage_access_key", &"***")
+            .finish()
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct GoogleConfig {
     pub application_default: bool,
     pub json_key_string: Option<String>,
     pub json_key_location: Option<PathBuf>,
+}
+
+impl fmt::Debug for GoogleConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GoogleConfig")
+            .field("application_default", &self.application_default)
+            .field("json_key_string", &self.json_key_string.as_ref().map(|_| "***"))
+            .field("json_key_location", &self.json_key_location)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

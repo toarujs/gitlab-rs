@@ -84,7 +84,7 @@ pub async fn body_limit_middleware(
 
     let size = content_length.unwrap_or(0);
 
-    if size > 50 * 1024 * 1024 {
+    if size > 512 * 1024 * 1024 {
         tracing::warn!(
             "Request body too large: {} bytes, path: {}",
             size,

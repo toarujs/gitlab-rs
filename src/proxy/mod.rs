@@ -24,6 +24,8 @@ use super::senddata;
 use super::state::AppState;
 use super::transport;
 
+pub type UnixSocketClient = hyper_util::client::legacy::Client<hyperlocal::UnixConnector, http_body_util::Full<bytes::Bytes>>;
+
 #[derive(Debug, Clone)]
 pub struct ProxyState {
     pub backend_url: Url,
@@ -144,6 +146,30 @@ pub async fn proxy_handler(
         Ok(mut response) => {
             let original_status = response.status();
 
+            // Invalidate avatar cache when profile is updated via web form
+            if method_str == "POST" && path_str == "/-/user_settings/profile" {
+                let status = original_status.as_u16();
+                if status == 200 || status == 302 {
+                    if let Some(cache) = &state.cache {
+                        let cache_key = "/uploads/-/system/user/avatar";
+                        let removed = cache.remove_by_prefix(cache_key).await;
+                        tracing::info!("Invalidated {} avatar cache entries after profile update", removed);
+                    }
+                }
+            }
+
+            // Prevent browser caching of avatar images to fix stale avatar display
+            if path_str.starts_with("/uploads/-/system/user/avatar/") {
+                response.headers_mut().insert(
+                    "cache-control",
+                    HeaderValue::from_static("no-cache, no-store, must-revalidate"),
+                );
+                response.headers_mut().insert(
+                    "pragma",
+                    HeaderValue::from_static("no-cache"),
+                );
+            }
+
             // Fix: post-login redirect to asset URLs → redirect to / instead
             if method_str == "POST" && path_str == "/users/sign_in" && original_status.as_u16() == 302 {
                 let loc_to_fix = response.headers().get("location").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
@@ -165,7 +191,7 @@ pub async fn proxy_handler(
                 let new_response = if is_mobile {
                     crate::html_injection::inject_into_response(response).await
                 } else {
-                    response
+                    crate::html_injection::inject_into_response(response).await
                 };
                 tracing::info!(
                     method = %method_str,
@@ -302,8 +328,10 @@ pub async fn proxy_request_streaming(
         }
     } else if let Some(ref socket_path) = state.proxy.auth_socket {
         let socket_path = socket_path.clone();
+        tracing::debug!(method = %method_str, path = %path_str, socket = %socket_path, "Routing to unix socket");
         proxy_via_unix_socket(&state, method, uri, headers, body, &socket_path).await
     } else {
+        tracing::debug!(method = %method_str, path = %path_str, "Routing to TCP");
         proxy_via_tcp(&state, method, uri, headers, body).await
     };
 
@@ -314,6 +342,21 @@ pub async fn proxy_request_streaming(
         Ok(resp) => resp.status().as_u16(),
         Err(s) => s.as_u16(),
     };
+
+    if let Ok(resp) = result.as_ref() {
+        let resp_status = resp.status().as_u16();
+        if resp_status >= 500 {
+            let content_type = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("");
+            tracing::warn!(
+                method = %method_str,
+                path = %path_str,
+                status = resp_status,
+                content_type = content_type,
+                duration_ms = duration,
+                "Backend returned 5xx response"
+            );
+        }
+    }
     timer.finish(response_status);
 
     if let Ok(ref _response) = result {
@@ -485,9 +528,7 @@ async fn proxy_via_tcp(
                         .and_then(|v| v.to_str().ok())
                         .unwrap_or("application/octet-stream")
                         .to_string();
-    let cache_key = format!("{}:{}", method.as_str(), uri.path_and_query()
-        .map(|pq| pq.as_str())
-        .unwrap_or(uri.path()));
+                    let cache_key = format!("{}:{}", method.as_str(), uri.path());
                     cache.set(cache_key, resp_body.clone(), content_type, None).await;
                 }
             }
@@ -523,20 +564,6 @@ async fn proxy_via_unix_socket(
     body: Body,
     socket_path: &str,
 ) -> Result<Response, StatusCode> {
-    use hyper_util::client::legacy::Client;
-    use hyper_util::rt::TokioExecutor;
-    use hyperlocal::UnixConnector;
-    use http_body_util::StreamBody;
-    use http_body::Frame;
-
-    // Convert BodyDataStream (Item=Result<Bytes, Error>) to Stream<Item=Result<Frame<Bytes>, Error>>
-    let body_stream = body.into_data_stream()
-        .map(|r| r.map(|b| Frame::data(b)));
-
-    let stream_body = StreamBody::new(body_stream);
-
-    let client = Client::builder(TokioExecutor::new()).build(UnixConnector);
-
     let path = uri.path_and_query()
         .map(|pq| pq.as_str())
         .unwrap_or("/");
@@ -573,15 +600,31 @@ async fn proxy_via_unix_socket(
         }
     }
 
-    // Stream body using StreamBody (no buffering)
+    // Buffer the entire request body before sending to avoid streaming timing issues
+    let body_data = body.collect().await.map_err(|e| {
+        tracing::error!("Failed to read request body: {}", e);
+        StatusCode::BAD_REQUEST
+    })?;
+    let body_bytes = body_data.to_bytes();
+
+    let req_body = http_body_util::Full::new(body_bytes);
     let req = request
-        .body(stream_body)
+        .body(req_body)
         .map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let resp = client.request(req.into()).await.map_err(|e| {
+    let resp = state.unix_client.request(req.into()).await.map_err(|e| {
         tracing::error!("Unix socket proxy error: {}", e);
         StatusCode::BAD_GATEWAY
     })?;
+
+    let resp_status = resp.status().as_u16();
+    tracing::info!(
+        method = %method.as_str(),
+        path = %path,
+        resp_status = resp_status,
+        resp_headers = ?resp.headers(),
+        "Unix socket: got response from backend"
+    );
 
     if let Some(cb) = &state.proxy.circuit_breaker {
         cb.record_success().await;
@@ -613,6 +656,17 @@ async fn proxy_via_unix_socket(
         StatusCode::BAD_GATEWAY
     })?;
     let body_bytes = collected.to_bytes();
+
+    if resp_status >= 500 {
+        let body_preview = std::str::from_utf8(&body_bytes).unwrap_or("<binary>");
+        tracing::error!(
+            method = %method.as_str(),
+            path = %path,
+            status = resp_status,
+            body = %body_preview,
+            "Backend 5xx response body"
+        );
+    }
 
     // Handle X-Sendfile: Rails returns file path in x-sendfile header, workhorse serves it
     // Check original response_headers since forward_response_headers strips x-sendfile

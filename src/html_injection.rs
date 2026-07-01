@@ -60,6 +60,36 @@ w.location.reload();
 }
 })();"#;
 
+pub const PROFILE_AVATAR_NOTE_JS: &str = r#"(function(){
+if(location.pathname.indexOf('/-/user_settings/profile')===-1)return;
+var els=document.querySelectorAll('.help-block, .form-text, .gl-field-hint');
+for(var i=0;i<els.length;i++){
+var t=els[i].textContent;
+if(t.indexOf('192')!==-1&&t.indexOf('10 MiB')!==-1){
+els[i].innerHTML+=' <strong style="color:#d9534f">（头像更新后需刷新页面或重新登录才能看到变化）</strong>';
+break;
+}
+}
+})();"#;
+
+pub const ABOUT_GITLAB_FIX_JS: &str = r#"(function(){
+function fix(){
+var as=document.querySelectorAll('a');
+for(var i=0;i<as.length;i++){
+var a=as[i];
+var h=a.getAttribute('href')||'';
+var t=a.textContent||'';
+if(h.indexOf('about.gitlab.com')!==-1||t.indexOf('About GitLab')!==-1){
+a.setAttribute('href','https://github.com/toarujs/gitlab-rs');
+a.setAttribute('target','_blank');
+a.setAttribute('rel','noopener noreferrer');
+}
+}
+}
+fix();
+new MutationObserver(function(){fix()}).observe(document.documentElement,{childList:true,subtree:true});
+})();"#;
+
 pub const WEB_VITALS_JS: &str = r#"(function(){
 var s=document.createElement('script');
 s.src='https://cdn.jsdelivr.net/npm/web-vitals@3/dist/web-vitals.iife.js';
@@ -157,6 +187,7 @@ pub async fn inject_into_response(response: Response) -> Response {
     };
 
     let injected = inject_mobile_html(&html);
+    let injected = inject_lang_data(&injected);
 
     let mut new_parts = parts;
     let new_len = injected.len();
@@ -170,59 +201,22 @@ pub async fn inject_into_response(response: Response) -> Response {
     Response::from_parts(new_parts, Body::from(injected))
 }
 
-pub async fn inject_lang_switcher(response: Response) -> Response {
-    let (parts, body) = response.into_parts();
-    let content_type = parts.headers
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_string();
-
-    if !content_type.contains("text/html") {
-        return Response::from_parts(parts, body);
-    }
-
-    let body_bytes = match body.collect().await {
-        Ok(collected) => collected.to_bytes(),
-        Err(_) => {
-            return Response::builder()
-                .status(502)
-                .body(Body::from("Bad Gateway"))
-                .unwrap();
-        }
-    };
-
-    let html = match std::str::from_utf8(&body_bytes) {
-        Ok(s) => s.to_string(),
-        Err(_) => return Response::from_parts(parts, Body::from(body_bytes)),
-    };
-
-    let mut injected = html;
+pub fn inject_lang_data(html: &str) -> String {
+    let mut injected = html.to_string();
 
     // Add Chinese to GitLab's built-in language switcher data-locales
     if let Some(pos) = injected.find("js-language-switcher") {
         if let Some(data_start) = injected[pos..].find("data-locales=\"") {
             let abs_start = pos + data_start + "data-locales=\"".len();
-            // Find the end of the data-locales attribute: ends with }]" (before closing quote)
             if let Some(rel_end) = injected[abs_start..].find("}]\"") {
-                let array_end = abs_start + rel_end + 1; // position of ]
-                // Insert Chinese entries before the closing ]
+                let array_end = abs_start + rel_end + 1;
                 let zh = r#",{&quot;value&quot;:&quot;zh_CN&quot;,&quot;percentage&quot;:95,&quot;text&quot;:&quot;简体中文&quot;},{&quot;value&quot;:&quot;zh_TW&quot;,&quot;percentage&quot;:90,&quot;text&quot;:&quot;繁體中文&quot;}"#;
                 injected.insert_str(array_end, zh);
             }
         }
     }
 
-    let mut new_parts = parts;
-    let new_len = injected.len();
-    new_parts.headers.insert(
-        "content-length",
-        new_len.to_string().parse().unwrap(),
-    );
-    new_parts.headers.remove("content-encoding");
-    new_parts.headers.remove("transfer-encoding");
-
-    Response::from_parts(new_parts, Body::from(injected))
+    injected
 }
 
 pub fn inject_mobile_html(html: &str) -> String {
@@ -261,6 +255,10 @@ pub fn inject_mobile_html(html: &str) -> String {
         injected.push_str(VIEWPORT_RECHECK_JS);
         injected.push_str("</script>\n");
 
+        injected.push_str("<script>");
+        injected.push_str(PROFILE_AVATAR_NOTE_JS);
+        injected.push_str("</script>\n");
+
         injected.push_str(&html[head_pos..]);
     } else {
         injected.push_str(html);
@@ -285,9 +283,14 @@ pub fn inject_mobile_html(html: &str) -> String {
         injected.insert_str(body_end, "\n<style>");
         injected.insert_str(body_end + 7, LANG_SWITCHER_CSS);
         injected.insert_str(body_end + 7 + LANG_SWITCHER_CSS.len(), "</style>\n");
-        let offset = body_end + 7 + LANG_SWITCHER_CSS.len() + 8;
+        let mut offset = body_end + 7 + LANG_SWITCHER_CSS.len() + 8;
         injected.insert_str(offset, LANG_SWITCHER_HTML);
-        injected.insert_str(offset + LANG_SWITCHER_HTML.len(), "\n");
+        offset += LANG_SWITCHER_HTML.len();
+        injected.insert_str(offset, "\n<script>");
+        offset += 9;
+        injected.insert_str(offset, ABOUT_GITLAB_FIX_JS);
+        offset += ABOUT_GITLAB_FIX_JS.len();
+        injected.insert_str(offset, "</script>\n");
     }
 
     injected

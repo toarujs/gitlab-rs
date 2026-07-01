@@ -31,6 +31,7 @@ pub struct AppState {
     pub injecters: Arc<senddata::InjecterRegistry>,
     pub secret: secret::Secret,
     pub webp_converter: Arc<imageresizer::WebPConverter>,
+    pub unix_client: Arc<proxy::UnixSocketClient>,
 }
 
 impl std::fmt::Debug for AppState {
@@ -47,6 +48,7 @@ impl std::fmt::Debug for AppState {
             .field("memory_pool", &self.memory_pool)
             .field("injecters", &"<InjecterRegistry>")
             .field("secret", &"<secret>")
+            .field("unix_client", &"<UnixSocketClient>")
             .finish()
     }
 }

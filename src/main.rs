@@ -200,106 +200,99 @@ fn resolve_auth_backend(auth_backend: &str, auth_socket: &Option<String>) -> Str
     auth_backend.to_string()
 }
 
-fn register_injecters(registry: &senddata::InjecterRegistry) {
-    tokio::task::block_in_place(|| {
-        let rt = tokio::runtime::Handle::current();
-        rt.block_on(async {
-            registry.register(senddata::Injecter {
-                name: "send-file".to_string(),
-                prefix: "send-data:send-file:".to_string(),
-                inject: Arc::new(|json_data: String, _headers: HeaderMap| {
-                    Box::pin(senddata::sendfile::send_file_inject(json_data, _headers))
-                }),
-            }).await;
+async fn register_injecters(registry: &senddata::InjecterRegistry) {
+    registry.register(senddata::Injecter {
+        name: "send-file".to_string(),
+        prefix: "send-data:send-file:".to_string(),
+        inject: Arc::new(|json_data: String, _headers: HeaderMap| {
+            Box::pin(senddata::sendfile::send_file_inject(json_data, _headers))
+        }),
+    }).await;
 
-            registry.register(senddata::Injecter {
-                name: "send-url".to_string(),
-                prefix: "send-data:send-url:".to_string(),
-                inject: Arc::new(|json_data: String, _headers: HeaderMap| {
-                    Box::pin(senddata::sendurl::send_url_inject(json_data, _headers))
-                }),
-            }).await;
+    registry.register(senddata::Injecter {
+        name: "send-url".to_string(),
+        prefix: "send-data:send-url:".to_string(),
+        inject: Arc::new(|json_data: String, _headers: HeaderMap| {
+            Box::pin(senddata::sendurl::send_url_inject(json_data, _headers))
+        }),
+    }).await;
 
-            registry.register(senddata::Injecter {
-                name: "git-archive".to_string(),
-                prefix: "send-data:git-archive:".to_string(),
-                inject: Arc::new(|json_data: String, _headers: HeaderMap| {
-                    Box::pin(senddata::git_injectors::git_archive_inject(json_data, _headers))
-                }),
-            }).await;
+    registry.register(senddata::Injecter {
+        name: "git-archive".to_string(),
+        prefix: "send-data:git-archive:".to_string(),
+        inject: Arc::new(|json_data: String, _headers: HeaderMap| {
+            Box::pin(senddata::git_injectors::git_archive_inject(json_data, _headers))
+        }),
+    }).await;
 
-            registry.register(senddata::Injecter {
-                name: "git-blob".to_string(),
-                prefix: "send-data:git-blob:".to_string(),
-                inject: Arc::new(|json_data: String, _headers: HeaderMap| {
-                    Box::pin(senddata::git_injectors::git_blob_inject(json_data, _headers))
-                }),
-            }).await;
+    registry.register(senddata::Injecter {
+        name: "git-blob".to_string(),
+        prefix: "send-data:git-blob:".to_string(),
+        inject: Arc::new(|json_data: String, _headers: HeaderMap| {
+            Box::pin(senddata::git_injectors::git_blob_inject(json_data, _headers))
+        }),
+    }).await;
 
-            registry.register(senddata::Injecter {
-                name: "git-diff".to_string(),
-                prefix: "send-data:git-diff:".to_string(),
-                inject: Arc::new(|json_data: String, _headers: HeaderMap| {
-                    Box::pin(senddata::git_injectors::git_diff_inject(json_data, _headers))
-                }),
-            }).await;
+    registry.register(senddata::Injecter {
+        name: "git-diff".to_string(),
+        prefix: "send-data:git-diff:".to_string(),
+        inject: Arc::new(|json_data: String, _headers: HeaderMap| {
+            Box::pin(senddata::git_injectors::git_diff_inject(json_data, _headers))
+        }),
+    }).await;
 
-            registry.register(senddata::Injecter {
-                name: "git-snapshot".to_string(),
-                prefix: "send-data:git-snapshot:".to_string(),
-                inject: Arc::new(|json_data: String, _headers: HeaderMap| {
-                    Box::pin(senddata::git_injectors::git_snapshot_inject(json_data, _headers))
-                }),
-            }).await;
+    registry.register(senddata::Injecter {
+        name: "git-snapshot".to_string(),
+        prefix: "send-data:git-snapshot:".to_string(),
+        inject: Arc::new(|json_data: String, _headers: HeaderMap| {
+            Box::pin(senddata::git_injectors::git_snapshot_inject(json_data, _headers))
+        }),
+    }).await;
 
-            registry.register(senddata::Injecter {
-                name: "image-resizer".to_string(),
-                prefix: "send-data:image-resizer:".to_string(),
-                inject: Arc::new(|json_data: String, _headers: HeaderMap| {
-                    Box::pin(senddata::imageresizer_injecter::image_resizer_inject(json_data, _headers))
-                }),
-            }).await;
+    registry.register(senddata::Injecter {
+        name: "image-resizer".to_string(),
+        prefix: "send-data:image-resizer:".to_string(),
+        inject: Arc::new(|json_data: String, _headers: HeaderMap| {
+            Box::pin(senddata::imageresizer_injecter::image_resizer_inject(json_data, _headers))
+        }),
+    }).await;
 
-            // git-format-patch injecter (Gitaly-backed)
-            registry.register(senddata::Injecter {
-                name: "git-format-patch".to_string(),
-                prefix: "send-data:git-format-patch:".to_string(),
-                inject: Arc::new(|json_data: String, _headers: HeaderMap| {
-                    Box::pin(senddata::git_injectors::git_patch_inject(json_data, _headers))
-                }),
-            }).await;
+    registry.register(senddata::Injecter {
+        name: "git-format-patch".to_string(),
+        prefix: "send-data:git-format-patch:".to_string(),
+        inject: Arc::new(|json_data: String, _headers: HeaderMap| {
+            Box::pin(senddata::git_injectors::git_patch_inject(json_data, _headers))
+        }),
+    }).await;
 
-            registry.register(senddata::Injecter {
-                name: "artifacts-entry".to_string(),
-                prefix: "send-data:artifacts-entry:".to_string(),
-                inject: Arc::new(|json_data: String, _headers: HeaderMap| {
-                    Box::pin(senddata::artifacts_entry::artifacts_entry_inject(json_data, _headers))
-                }),
-            }).await;
+    registry.register(senddata::Injecter {
+        name: "artifacts-entry".to_string(),
+        prefix: "send-data:artifacts-entry:".to_string(),
+        inject: Arc::new(|json_data: String, _headers: HeaderMap| {
+            Box::pin(senddata::artifacts_entry::artifacts_entry_inject(json_data, _headers))
+        }),
+    }).await;
 
-            // Register stub injecters for remaining send-data prefixes
-            for (name, prefix) in &[
-                ("git-changed-paths", "send-data:git-changed-paths:"),
-                ("git-list-blobs", "send-data:git-list-blobs:"),
-                ("dependency-proxy", "send-data:dependency-proxy:"),
-                ("orbit-query", "send-data:orbit-query:"),
-            ] {
-                let name = name.to_string();
-                let prefix = prefix.to_string();
-                registry.register(senddata::Injecter {
-                    name: name.clone(),
-                    prefix: prefix.clone(),
-                    inject: Arc::new(move |_json_data: String, _headers: HeaderMap| {
-                        let name = name.clone();
-                        Box::pin(async move {
-                            tracing::warn!("Stub injecter '{}' called — Gitaly integration needed", name);
-                            Err(StatusCode::NOT_IMPLEMENTED)
-                        })
-                    }),
-                }).await;
-            }
-        });
-    });
+    for (name, prefix) in &[
+        ("git-changed-paths", "send-data:git-changed-paths:"),
+        ("git-list-blobs", "send-data:git-list-blobs:"),
+        ("dependency-proxy", "send-data:dependency-proxy:"),
+        ("orbit-query", "send-data:orbit-query:"),
+    ] {
+        let name = name.to_string();
+        let prefix = prefix.to_string();
+        registry.register(senddata::Injecter {
+            name: name.clone(),
+            prefix: prefix.clone(),
+            inject: Arc::new(move |_json_data: String, _headers: HeaderMap| {
+                let name = name.clone();
+                Box::pin(async move {
+                    tracing::warn!("Stub injecter '{}' called — Gitaly integration needed", name);
+                    Err(StatusCode::NOT_IMPLEMENTED)
+                })
+            }),
+        }).await;
+    }
 }
 
 #[tokio::main]
@@ -377,7 +370,7 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {}", e))?;
 
     let injecters = Arc::new(senddata::InjecterRegistry::new());
-    register_injecters(&injecters);
+    register_injecters(&injecters).await;
 
     let secret = secret::Secret::from_path(&cli.secret_path)
         .unwrap_or_else(|e| {
@@ -433,6 +426,7 @@ async fn main() -> anyhow::Result<()> {
         },
         cache: Some(cache::CacheState::new(
             1000,
+            10 * 1024 * 1024, // max 10MB per cached entry
             std::time::Duration::from_secs(300),
         )),
         memory_pool: memory::MemoryPool::default(),
@@ -442,6 +436,10 @@ async fn main() -> anyhow::Result<()> {
             500 * 1024 * 1024,
             75.0,
         )),
+        unix_client: Arc::new(
+            hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+                .build(hyperlocal::UnixConnector)
+        ),
     };
 
     let app = Router::new()

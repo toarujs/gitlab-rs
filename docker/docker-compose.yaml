@@ -39,6 +39,16 @@ services:
     networks:
       - gitlab-rs-net
 
+  runner:
+    image: gitlab/gitlab-runner:latest
+    container_name: gitlab-rs-runner
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - runner-config:/etc/gitlab-runner
+    networks:
+      - gitlab-rs-net
+
   db:
     image: postgres:17
     container_name: gitlab-rs-db
@@ -68,6 +78,7 @@ volumes:
   data:
   postgres:
   redis:
+  runner-config:
 
 networks:
   gitlab-rs-net:

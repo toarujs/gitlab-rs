@@ -1,12 +1,12 @@
 
 use std::io;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::net::{TcpStream, UnixStream};
 use tokio::sync::{mpsc, oneshot, Mutex as TokioMutex};
 use futures::prelude::*;
-use futures::FutureExt;
 
 const BACKCHANNEL_MAGIC: &[u8; 11] = b"backchannel";
 const SIDECHANNEL_MAGIC: &[u8; 11] = b"sidechannel";
@@ -92,13 +92,12 @@ impl<T: futures::io::AsyncRead + Unpin> hyper::rt::Read for FuturesCompat<T> {
         cx: &mut Context<'_>,
         mut buf: hyper::rt::ReadBufCursor<'_>,
     ) -> Poll<io::Result<()>> {
-        // Create a temporary buffer to read into
-        let mut temp_buf = vec![0u8; buf.remaining()];
-        
-        match Pin::new(&mut self.0).poll_read(cx, &mut temp_buf) {
+        let mut chunk = [0u8; 4096];
+        let max = buf.remaining().min(chunk.len());
+        match Pin::new(&mut self.0).poll_read(cx, &mut chunk[..max]) {
             Poll::Ready(Ok(n)) => {
                 if n > 0 {
-                    buf.put_slice(&temp_buf[..n]);
+                    buf.put_slice(&chunk[..n]);
                 }
                 Poll::Ready(Ok(()))
             }
@@ -161,8 +160,14 @@ impl tokio::io::AsyncWrite for CompatStream {
     }
 }
 
+/// Events from the yamux connection driver loop
+enum DriverEvent {
+    Inbound(Option<Result<yamux::Stream, yamux::ConnectionError>>),
+    Outbound(Result<yamux::Stream, yamux::ConnectionError>),
+}
+
 pub struct YamuxSession {
-    stream_req_tx: mpsc::UnboundedSender<oneshot::Sender<yamux::Stream>>,
+    stream_req_tx: mpsc::Sender<oneshot::Sender<yamux::Stream>>,
     sidechannel_waiter: Arc<TokioMutex<Option<oneshot::Sender<SidechannelStream>>>>,
 }
 
@@ -188,131 +193,121 @@ impl YamuxSession {
         );
         
         let wrapped = TokioCompat(raw);
-        let mut connection = yamux::Connection::new(wrapped, config, yamux::Mode::Client);
+        let connection = yamux::Connection::new(wrapped, config, yamux::Mode::Client);
         tracing::info!("yamux connect: yamux client session created");
 
         // Use a channel to communicate between the main task and the driver
-        let (stream_req_tx, mut stream_req_rx) = mpsc::unbounded_channel::<oneshot::Sender<yamux::Stream>>();
+        let (stream_req_tx, mut stream_req_rx) = mpsc::channel::<oneshot::Sender<yamux::Stream>>(256);
         
         // Single sidechannel waiter per session (since Gitaly allocates its own ID)
         let sidechannel_waiter: Arc<TokioMutex<Option<oneshot::Sender<SidechannelStream>>>> =
             Arc::new(TokioMutex::new(None));
         let sidechannel_waiter_clone = sidechannel_waiter.clone();
         
-        // Spawn the connection driver
-        // The driver uses now_or_never() for non-blocking polling and spawns separate tasks
-        // for sidechannel stream handling to avoid blocking the connection driver loop
+        // Spawn the connection driver using proper async/await instead of busy-polling.
+        // Uses a single poll_fn for both inbound and outbound to avoid double mutable borrows.
         tokio::spawn(async move {
-            let mut pending_opener: Option<oneshot::Sender<yamux::Stream>> = None;
-            
+            let mut connection = connection;
+            let has_pending = AtomicBool::new(false);
+            let pending_sender = std::sync::Mutex::new(None::<oneshot::Sender<yamux::Stream>>);
+
+            // Combined poll future that checks both inbound streams and outbound opens
+            let poll_conn = futures::future::poll_fn(|cx| {
+                // Check outbound first if we have a pending request
+                if has_pending.load(Ordering::Relaxed) {
+                    match Pin::new(&mut connection).poll_new_outbound(cx) {
+                        Poll::Ready(result) => return Poll::Ready(DriverEvent::Outbound(result)),
+                        Poll::Pending => {}
+                    }
+                }
+                // Check inbound streams
+                match Pin::new(&mut connection).poll_next_inbound(cx) {
+                    Poll::Ready(inbound) => Poll::Ready(DriverEvent::Inbound(inbound)),
+                    Poll::Pending => Poll::Pending,
+                }
+            });
+
+            tokio::pin!(poll_conn);
+
             loop {
-                // First, try to open a stream if we have a pending request
-                if let Some(ref _opener) = pending_opener {
-                    let can_open = futures::future::poll_fn(|cx| {
-                        Pin::new(&mut connection).poll_new_outbound(cx)
-                    }).now_or_never();
-                    
-                    if let Some(result) = can_open {
-                        match result {
-                            Ok(stream) => {
-                                tracing::info!("yamux driver: outbound stream opened");
-                                let opener = pending_opener.take().unwrap();
-                                let _ = opener.send(stream);
+                tokio::select! {
+                    event = poll_conn.as_mut() => {
+                        match event {
+                            DriverEvent::Inbound(inbound) => {
+                                match inbound {
+                                    Some(Ok(mut stream)) => {
+                                        let sc_waiter = sidechannel_waiter_clone.clone();
+                                        tokio::spawn(async move {
+                                            let mut magic_buf = [0u8; 11];
+                                            if let Err(e) = futures::io::AsyncReadExt::read_exact(&mut stream, &mut magic_buf).await {
+                                                tracing::error!("sidechannel handler: failed to read magic: {}", e);
+                                                return;
+                                            }
+                                            if &magic_buf != SIDECHANNEL_MAGIC {
+                                                tracing::error!("sidechannel handler: invalid magic: {:?}", magic_buf);
+                                                return;
+                                            }
+                                            let mut sid_bytes = [0u8; 8];
+                                            if let Err(e) = futures::io::AsyncReadExt::read_exact(&mut stream, &mut sid_bytes).await {
+                                                tracing::error!("sidechannel handler: failed to read sid: {}", e);
+                                                return;
+                                            }
+                                            let _sid = u64::from_be_bytes(sid_bytes);
+                                            if let Err(e) = futures::io::AsyncWriteExt::write_all(&mut stream, b"ok").await {
+                                                tracing::error!("sidechannel handler: failed to send ok: {}", e);
+                                                return;
+                                            }
+                                            if let Err(e) = futures::io::AsyncWriteExt::flush(&mut stream).await {
+                                                tracing::error!("sidechannel handler: failed to flush: {}", e);
+                                                return;
+                                            }
+                                            let sidechannel = SidechannelStream::new(stream);
+                                            if let Some(waiter_tx) = sc_waiter.lock().await.take() {
+                                                let _ = waiter_tx.send(sidechannel);
+                                            } else {
+                                                tracing::warn!("sidechannel handler: no waiter registered");
+                                            }
+                                        });
+                                    }
+                                    Some(Err(e)) => {
+                                        tracing::error!("yamux driver: accept stream error: {}", e);
+                                        break;
+                                    }
+                                    None => {
+                                        tracing::info!("yamux driver: connection closed");
+                                        break;
+                                    }
+                                }
                             }
-                            Err(e) => {
-                                tracing::error!("yamux driver: failed to open stream: {}", e);
+                            DriverEvent::Outbound(result) => {
+                                let opener = pending_sender.lock().unwrap().take().unwrap();
+                                has_pending.store(false, Ordering::Relaxed);
+                                match result {
+                                    Ok(stream) => {
+                                        let _ = opener.send(stream);
+                                    }
+                                    Err(e) => {
+                                        tracing::error!("yamux driver: outbound open failed: {}", e);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    req = stream_req_rx.recv() => {
+                        match req {
+                            Some(opener) => {
+                                *pending_sender.lock().unwrap() = Some(opener);
+                                has_pending.store(true, Ordering::Relaxed);
+                            }
+                            None => {
+                                tracing::info!("yamux driver: stream request channel closed");
                                 break;
                             }
                         }
                     }
                 }
-                
-                // Check for stream open requests
-                match stream_req_rx.try_recv() {
-                    Ok(opener) => {
-                        tracing::debug!("yamux driver: received open request");
-                        pending_opener = Some(opener);
-                        continue;
-                    }
-                    Err(mpsc::error::TryRecvError::Empty) => {}
-                    Err(mpsc::error::TryRecvError::Disconnected) => {
-                        tracing::info!("yamux driver: stream request channel closed");
-                        break;
-                    }
-                }
-                
-                // Try to accept inbound streams (non-blocking check)
-                let inbound = futures::future::poll_fn(|cx| {
-                    Pin::new(&mut connection).poll_next_inbound(cx)
-                }).now_or_never();
-                
-                match inbound {
-                    Some(Some(Ok(mut stream))) => {
-                        tracing::info!("yamux driver: accepted incoming stream");
-                        
-                        // Spawn a separate task to handle the sidechannel protocol
-                        let sc_waiter = sidechannel_waiter_clone.clone();
-                        tokio::spawn(async move {
-                            // Read sidechannel magic bytes
-                            let mut magic_buf = [0u8; 11];
-                            if let Err(e) = futures::io::AsyncReadExt::read_exact(&mut stream, &mut magic_buf).await {
-                                tracing::error!("sidechannel handler: failed to read magic: {}", e);
-                                return;
-                            }
-                            tracing::info!("sidechannel handler: read magic: {:?}", magic_buf);
-                            
-                            if &magic_buf != SIDECHANNEL_MAGIC {
-                                tracing::error!("sidechannel handler: invalid magic: {:?}", magic_buf);
-                                return;
-                            }
-
-                            // Read sidechannel ID (we read it but don't use it for matching)
-                            let mut sid_bytes = [0u8; 8];
-                            if let Err(e) = futures::io::AsyncReadExt::read_exact(&mut stream, &mut sid_bytes).await {
-                                tracing::error!("sidechannel handler: failed to read sid: {}", e);
-                                return;
-                            }
-                            let sid = u64::from_be_bytes(sid_bytes);
-                            tracing::info!("sidechannel handler: sid={}", sid);
-
-                            // Send "ok" confirmation to Gitaly
-                            if let Err(e) = futures::io::AsyncWriteExt::write_all(&mut stream, b"ok").await {
-                                tracing::error!("sidechannel handler: failed to send ok: {}", e);
-                                return;
-                            }
-                            tracing::info!("sidechannel handler: ok sent for sid={}", sid);
-
-                            // Flush to ensure "ok" is sent
-                            if let Err(e) = futures::io::AsyncWriteExt::flush(&mut stream).await {
-                                tracing::error!("sidechannel handler: failed to flush: {}", e);
-                                return;
-                            }
-
-                            // Create sidechannel stream and notify the single waiter
-                            let sidechannel = SidechannelStream::new(stream);
-                            if let Some(waiter_tx) = sc_waiter.lock().await.take() {
-                                tracing::info!("sidechannel handler: notifying waiter for sid={}", sid);
-                                let _ = waiter_tx.send(sidechannel);
-                            } else {
-                                tracing::warn!("sidechannel handler: no waiter registered");
-                            }
-                        });
-                    }
-                    Some(Some(Err(e))) => {
-                        tracing::error!("yamux driver: accept stream error: {}", e);
-                        break;
-                    }
-                    Some(None) => {
-                        tracing::info!("yamux driver: connection closed");
-                        break;
-                    }
-                    None => {
-                        // No inbound streams available, sleep briefly to avoid busy loop
-                        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-                    }
-                }
             }
-            
+
             tracing::info!("yamux driver: task finished");
         });
 
@@ -346,7 +341,7 @@ impl YamuxSession {
             async move {
                 // Request a new stream from the yamux session
                 let (stream_tx, stream_rx) = oneshot::channel();
-                stream_req_tx.send(stream_tx)
+                stream_req_tx.send(stream_tx).await
                     .map_err(|_| io::Error::new(io::ErrorKind::Other, "failed to request stream"))?;
                 
                 let stream = stream_rx.await
@@ -414,7 +409,7 @@ impl SidechannelStream {
 
     pub async fn read_to_end_with_limit(&mut self, buf: &mut Vec<u8>, max_bytes: usize) -> io::Result<usize> {
         let before = buf.len();
-        let mut temp_buf = vec![0u8; 8192];
+        let mut temp_buf: [u8; 8192] = [0u8; 8192];
         loop {
             match futures::io::AsyncReadExt::read(&mut self.stream, &mut temp_buf).await {
                 Ok(0) => break,
@@ -458,15 +453,18 @@ impl tokio::io::AsyncRead for SidechannelStream {
         
         // Use the read buffer to handle partial reads
         while self.read_pos >= self.read_buf.len() {
-            self.read_buf.clear();
             self.read_pos = 0;
-            
-            // Try to read from the stream
-            let mut temp_buf = vec![0u8; 8192];
-            match Pin::new(&mut self.stream).poll_read(cx, &mut temp_buf) {
-                Poll::Ready(Ok(0)) => return Poll::Ready(Ok(())),
+
+            // Read into stack buffer first to avoid simultaneous mutable borrows
+            let mut temp: [u8; 8192] = [0u8; 8192];
+            match Pin::new(&mut self.stream).poll_read(cx, &mut temp) {
+                Poll::Ready(Ok(0)) => {
+                    self.read_buf.clear();
+                    return Poll::Ready(Ok(()));
+                }
                 Poll::Ready(Ok(n)) => {
-                    self.read_buf = temp_buf[..n].to_vec();
+                    self.read_buf.clear();
+                    self.read_buf.extend_from_slice(&temp[..n]);
                 }
                 Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
                 Poll::Pending => return Poll::Pending,
