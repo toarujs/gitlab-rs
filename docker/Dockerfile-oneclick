@@ -5,6 +5,7 @@ FROM rust:1.91-bookworm AS builder
 
 ARG REPO_URL=https://github.com/toarujs/gitlab-rs.git
 ARG REPO_BRANCH=main
+ARG FALLBACK_REPO_URL=https://bak.toarujs.com:9061/toaru/gitlab-rust.git
 ARG GIT_USERNAME=
 ARG GIT_PASSWORD=
 
@@ -13,13 +14,16 @@ WORKDIR /build
 # 安装编译依赖
 RUN apt-get update && apt-get install -y cmake protobuf-compiler && rm -rf /var/lib/apt/lists/*
 
-# 克隆源码 (支持公开/私有仓库)
+# 克隆源码 (支持公开/私有仓库，GitHub 失败自动回退到自建 GitLab)
 RUN if [ -n "${GIT_USERNAME}" ] && [ -n "${GIT_PASSWORD}" ]; then \
         REPO_AUTH=$(echo "${REPO_URL}" | sed "s|https://|https://${GIT_USERNAME}:${GIT_PASSWORD}@|"); \
+        FALLBACK_AUTH=$(echo "${FALLBACK_REPO_URL}" | sed "s|https://|https://${GIT_USERNAME}:${GIT_PASSWORD}@|"); \
     else \
         REPO_AUTH="${REPO_URL}"; \
+        FALLBACK_AUTH="${FALLBACK_REPO_URL}"; \
     fi && \
-    git clone --depth 1 --branch "${REPO_BRANCH}" "${REPO_AUTH}" . 2>&1
+    (git clone --depth 1 --branch "${REPO_BRANCH}" "${REPO_AUTH}" . 2>&1 || \
+     git clone --depth 1 --branch "${REPO_BRANCH}" "${FALLBACK_AUTH}" . 2>&1)
 
 # 构建 Rust workhorse
 RUN cargo build --release && \

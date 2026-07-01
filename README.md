@@ -69,6 +69,7 @@ docker build -f docker/Dockerfile-oneclick \
 |-----|--------|------|
 | `REPO_URL` | `https://github.com/toarujs/gitlab-rs.git` | 源码仓库 |
 | `REPO_BRANCH` | `main` | 分支名 |
+| `FALLBACK_REPO_URL` | `https://bak.toarujs.com:9061/toaru/gitlab-rust.git` | GitHub 不可达时自动回退 |
 | `GIT_USERNAME` | (空) | 私有仓库用户名 |
 | `GIT_PASSWORD` | (空) | 私有仓库密码/Token |
 
