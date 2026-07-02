@@ -78,6 +78,8 @@ services:
       - "maintenance_work_mem=512MB"
       - "-c"
       - "random_page_cost=1.1"
+      - "-c"
+      - "shared_preload_libraries=pg_stat_statements"
     environment:
       POSTGRES_USER: ${DB_USER:?Please set DB_USER in .env}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?Please set DB_PASSWORD in .env}
