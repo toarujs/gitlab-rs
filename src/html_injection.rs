@@ -181,12 +181,12 @@ pub async fn inject_into_response(response: Response) -> Response {
         }
     };
 
-    let html = match std::str::from_utf8(&body_bytes) {
-        Ok(s) => s.to_string(),
+    let html_str = match std::str::from_utf8(&body_bytes) {
+        Ok(s) => s,
         Err(_) => return Response::from_parts(parts, Body::from(body_bytes)),
     };
 
-    let injected = inject_mobile_html(&html);
+    let injected = inject_mobile_html(html_str);
     let injected = inject_lang_data(&injected);
 
     let mut new_parts = parts;
