@@ -5,31 +5,60 @@ use axum::{
     response::Response,
 };
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
+use tokio::sync::Mutex;
 
 use super::state::AppState;
 
+const SHARD_COUNT: usize = 16;
+
+type ShardMap = HashMap<String, Vec<Instant>>;
+
+#[derive(Debug)]
+struct Shard {
+    requests: Mutex<ShardMap>,
+}
+
+impl Shard {
+    fn new() -> Self {
+        Self {
+            requests: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RateLimitState {
-    pub requests: Arc<RwLock<HashMap<String, Vec<Instant>>>>,
+    shards: Arc<Vec<Shard>>,
     pub max_requests: u32,
     pub window_duration: Duration,
 }
 
+fn hash_ip(ip: &str) -> usize {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    ip.hash(&mut hasher);
+    hasher.finish() as usize % SHARD_COUNT
+}
+
 impl RateLimitState {
     pub fn new(max_requests: u32, window_duration: Duration) -> Self {
+        let shards = (0..SHARD_COUNT)
+            .map(|_| Shard::new())
+            .collect::<Vec<_>>();
         Self {
-            requests: Arc::new(RwLock::new(HashMap::new())),
+            shards: Arc::new(shards),
             max_requests,
             window_duration,
         }
     }
 
     pub async fn check_rate_limit(&self, client_ip: &str) -> bool {
-        let mut requests = self.requests.write().await;
+        let idx = hash_ip(client_ip);
+        let shard = &self.shards[idx];
+        let mut requests = shard.requests.lock().await;
         let now = Instant::now();
 
         let entry = requests
@@ -44,38 +73,37 @@ impl RateLimitState {
         }
 
         entry.push(now);
-
         true
     }
 
     pub async fn cleanup_expired(&self) {
-        let mut requests = self.requests.write().await;
         let now = Instant::now();
         let window_start = now - self.window_duration;
-        requests.retain(|_ip, times| {
-            times.retain(|&t| t >= window_start);
-            !times.is_empty()
-        });
+
+        for shard in self.shards.iter() {
+            let mut requests = shard.requests.lock().await;
+            requests.retain(|_ip, times| {
+                times.retain(|&t| t >= window_start);
+                !times.is_empty()
+            });
+        }
     }
 }
 
 pub async fn rate_limit_middleware(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     request: axum::extract::Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // Use actual TCP connection IP, not X-Forwarded-For
-    let client_ip = addr.ip().to_string();
-
     if let Some(rate_limiter) = &state.rate_limit {
+        let client_ip = addr.ip().to_string();
         if !rate_limiter.check_rate_limit(&client_ip).await {
             return Err(StatusCode::TOO_MANY_REQUESTS);
         }
     }
 
     let response = next.run(request).await;
-
     Ok(response)
 }

@@ -161,18 +161,14 @@ pub async fn proxy_handler(
 ) -> Result<Response, StatusCode> {
     let device = req.extensions().get::<crate::device_detection::DeviceClass>().copied();
     let is_mobile = device.map(|d| d.is_mobile_or_tablet()).unwrap_or(false);
-    let method = req.method().clone();
-    let method_str = method.to_string();
-    let uri = req.uri().clone();
-    let path_str = uri.path().to_string();
-    let headers = req.headers().clone();
-    let client_accepts_webp = crate::imageresizer::WebPConverter::supports_webp(&headers);
-    let best_format = crate::imageresizer::WebPConverter::best_supported_format(&headers);
 
-    // Stream request body to backend (no buffering)
     let (parts, body) = req.into_parts();
     let method = parts.method.clone();
     let uri = parts.uri.clone();
+    let method_str = method.to_string();
+    let path_str = uri.path().to_string();
+    let client_accepts_webp = crate::imageresizer::WebPConverter::supports_webp(&parts.headers);
+    let best_format = crate::imageresizer::WebPConverter::best_supported_format(&parts.headers);
     let headers = parts.headers.clone();
 
     let result = proxy_request_streaming(State(state.clone()), method.clone(), uri, headers, body).await;
@@ -328,12 +324,16 @@ pub async fn proxy_request_streaming(
         }
     }
 
-    // Generate optimized cache key - strip cache-busting params for static assets
-    let cache_key = generate_cache_key(&method, &uri);
+    // Only generate cache key for GET requests (memoizable)
+    let cache_key = if method == Method::GET {
+        Some(generate_cache_key(&method, &uri))
+    } else {
+        None
+    };
 
     if let Some(ref cache) = state.cache {
-        if method == Method::GET {
-            if let Some(entry) = cache.get(&cache_key).await {
+        if let Some(ref cache_key) = cache_key {
+            if let Some(entry) = cache.get(cache_key).await {
                 state.metrics.record_request_duration(timer.elapsed_ms() as f64 / 1000.0);
                 timer.finish(200);
                 let mut response_headers = HeaderMap::new();

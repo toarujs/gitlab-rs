@@ -787,6 +787,17 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    let rate_limit_state = app_state.rate_limit.clone();
+    tokio::spawn(async move {
+        let duration = std::time::Duration::from_secs(300);
+        loop {
+            tokio::time::sleep(duration).await;
+            if let Some(ref rl) = rate_limit_state {
+                rl.cleanup_expired().await;
+            }
+        }
+    });
+
     if let Some(tls) = tls_config {
         tracing::info!("TLS enabled, starting HTTP/2 server on {}", addr);
         serve_with_tls(addr, app, &tls).await?;
