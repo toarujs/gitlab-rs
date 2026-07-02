@@ -710,6 +710,8 @@ async fn main() -> anyhow::Result<()> {
         // WebSocket routes
         .route("/-/cable", get(proxy::proxy_websocket))
         .route("/-/cable/*path", get(proxy::proxy_websocket))
+        // Collect events – fast-path: skip proxy, return 200 directly
+        .route("/-/collect_events", post(handle_collect_events))
         // Serve static files from public/-/ (emojis, pwa-icons, etc.)
         .route("/-/*path", get(serve_public_or_proxy))
         // Assets (static files with long cache)
@@ -971,6 +973,11 @@ async fn serve_public_or_proxy(
             proxy::proxy_handler(State(app_state), req).await
         }
     }
+}
+
+/// Fast-path handler for Snowplow analytics events – skip the proxy pipeline entirely
+async fn handle_collect_events() -> impl axum::response::IntoResponse {
+    StatusCode::OK
 }
 
 async fn mobile_css() -> impl axum::response::IntoResponse {
