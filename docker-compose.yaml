@@ -24,6 +24,9 @@ services:
         nginx["enable"] = false
         gitlab_workhorse["enable"] = false
         puma["socket"] = "/var/opt/gitlab/gitlab-rails/sockets/gitlab.socket"
+        puma["worker_processes"] = 8
+        puma["min_threads"] = 8
+        puma["max_threads"] = 8
         gitlab_rails["trusted_proxies"] = ["172.16.0.0/12", "192.168.0.0/16", "10.0.0.0/8"]
         gitlab_rails["lfs_enabled"] = true
         gitlab_rails["gravatar_enabled"] = false
@@ -55,6 +58,18 @@ services:
     image: postgres:17
     container_name: gitlab-rs-db
     restart: unless-stopped
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=2GB"
+      - "-c"
+      - "effective_cache_size=6GB"
+      - "-c"
+      - "work_mem=64MB"
+      - "-c"
+      - "maintenance_work_mem=512MB"
+      - "-c"
+      - "random_page_cost=1.1"
     environment:
       POSTGRES_USER: ${DB_USER:?Please set DB_USER in .env}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?Please set DB_PASSWORD in .env}
