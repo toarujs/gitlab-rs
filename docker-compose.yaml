@@ -12,6 +12,11 @@ services:
       retries: 10
       start_period: 300s
     environment:
+      LD_PRELOAD: /opt/gitlab/embedded/lib/libjemalloc.so
+      MALLOC_ARENA_MAX: "2"
+      RUBY_GC_HEAP_INIT_SLOTS: "800000"
+      RUBY_GC_HEAP_FREE_SLOTS: "100000"
+      RUBY_GC_HEAP_GROWTH_FACTOR: "1.05"
       GITLAB_OMNIBUS_CONFIG: |
         external_url "${EXTERNAL_URL:-http://localhost}"
         gitlab_rails["gitlab_shell_ssh_port"] = ${SSH_PORT:-22}
@@ -19,6 +24,7 @@ services:
         gitlab_rails["db_username"] = "${DB_USER:-gitlab}"
         gitlab_rails["db_password"] = "${DB_PASSWORD:?Please set DB_PASSWORD in .env}"
         gitlab_rails["db_host"] = "db"
+        gitlab_rails["db_pool"] = 10
         redis["enable"] = false
         gitlab_rails["redis_host"] = "redis"
         nginx["enable"] = false
@@ -31,6 +37,8 @@ services:
         gitlab_rails["lfs_enabled"] = true
         gitlab_rails["gravatar_enabled"] = false
         gitlab_rails["initial_root_password"] = "${ROOT_PASSWORD:?Please set ROOT_PASSWORD in .env}"
+        gitlab_rails["application_settings_cache_seconds"] = 60
+        gitlab_rails["rack_attack_git_basic_auth"] = { "enabled" => false }
     ports:
       - "${HTTP_PORT:-80}:80"
       - "${SSH_PORT:-22}:22"
