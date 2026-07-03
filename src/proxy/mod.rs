@@ -334,6 +334,7 @@ pub async fn proxy_request_streaming(
     if let Some(ref cache) = state.cache {
         if let Some(ref cache_key) = cache_key {
             if let Some(entry) = cache.get(cache_key).await {
+                tracing::info!(cache_key = %cache_key, "Cache HIT");
                 state.metrics.record_request_duration(timer.elapsed_ms() as f64 / 1000.0);
                 timer.finish(200);
                 let mut response_headers = HeaderMap::new();
@@ -364,6 +365,7 @@ pub async fn proxy_request_streaming(
                 }
                 return Ok((StatusCode::OK, response_headers, entry.data.to_vec()).into_response());
             }
+            tracing::info!(cache_key = %cache_key, "Cache MISS");
         }
     }
 
@@ -601,7 +603,8 @@ async fn proxy_via_tcp(
                             }
                         })
                         .collect();
-                    cache.set(cache_key, resp_body.clone(), content_type, cache_headers, None).await;
+                    cache.set(cache_key.clone(), resp_body.clone(), content_type, cache_headers, None).await;
+                    tracing::info!(cache_key = %cache_key, size = resp_body.len(), "Cache STORE");
                 }
             }
 
