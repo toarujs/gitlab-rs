@@ -7,6 +7,9 @@ docker/gitlab-workhorse-rs
 # Environment (keep .env.example as template)
 .env
 
+# Server-specific memory (not synced)
+MEMORY2.md
+
 # SSH keys
 *.pub
 
