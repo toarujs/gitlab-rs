@@ -334,7 +334,6 @@ pub async fn proxy_request_streaming(
     if let Some(ref cache) = state.cache {
         if let Some(ref cache_key) = cache_key {
             if let Some(entry) = cache.get(cache_key).await {
-                tracing::info!(cache_key = %cache_key, "Cache HIT");
                 state.metrics.record_request_duration(timer.elapsed_ms() as f64 / 1000.0);
                 timer.finish(200);
                 let mut response_headers = HeaderMap::new();
@@ -365,7 +364,6 @@ pub async fn proxy_request_streaming(
                 }
                 return Ok((StatusCode::OK, response_headers, entry.data.to_vec()).into_response());
             }
-            tracing::info!(cache_key = %cache_key, "Cache MISS");
         }
     }
 
@@ -812,6 +810,36 @@ async fn proxy_via_unix_socket(
     }
 
     let filtered_response_headers = filtered_response_headers;
+
+    // Cache successful GET responses
+    if let Some(ref cache) = state.cache {
+        if method == Method::GET && status.is_success() {
+            let content_type = filtered_response_headers
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("application/octet-stream")
+                .to_string();
+            let cache_key = generate_cache_key(&method, &uri);
+            let cache_headers: Vec<(String, String)> = filtered_response_headers
+                .iter()
+                .filter_map(|(k, v)| {
+                    let key = k.as_str().to_lowercase();
+                    match key.as_str() {
+                        "cache-control" | "etag" | "last-modified" | "content-type"
+                        | "x-content-type-options" | "x-frame-options" | "x-xss-protection"
+                        | "x-permitted-cross-domain-policies" | "referrer-policy"
+                        | "permissions-policy" | "x-ua-compatible" | "x-gitlab-meta"
+                        | "x-request-id" | "x-download-options" => {
+                            v.to_str().ok().map(|s| (k.as_str().to_string(), s.to_string()))
+                        }
+                        _ => None,
+                    }
+                })
+                .collect();
+            cache.set(cache_key.clone(), body_bytes.clone(), content_type, cache_headers, None).await;
+            tracing::info!(cache_key = %cache_key, size = body_bytes.len(), "Cache STORE");
+        }
+    }
 
     Ok((status, filtered_response_headers, body_bytes).into_response())
 }
