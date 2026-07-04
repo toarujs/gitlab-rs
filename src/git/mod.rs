@@ -78,7 +78,7 @@ pub async fn handle_git_request(
 }
 
 async fn handle_upload_pack(
-    state: AppState,
+    _state: AppState,
     path: String,
     _headers: HeaderMap,
     body: String,
@@ -125,7 +125,7 @@ async fn handle_upload_pack(
 }
 
 async fn handle_receive_pack(
-    state: AppState,
+    _state: AppState,
     path: String,
     _headers: HeaderMap,
     body: String,

@@ -428,6 +428,133 @@ pub async fn proxy_request_streaming(
     result
 }
 
+/// Shared response body processing pipeline: handles X-Sendfile, detect-content-type,
+/// send-data injection, cache storage, ETag generation, and conditional requests.
+#[allow(clippy::too_many_arguments)]
+async fn process_response_pipeline(
+    state: &AppState,
+    method: &Method,
+    uri: &Uri,
+    request_headers: &HeaderMap,
+    status: StatusCode,
+    response_headers: &HeaderMap,
+    body_bytes: Bytes,
+) -> Result<Response, StatusCode> {
+    let mut filtered = forwardheaders::forward_response_headers(response_headers, None, &[]);
+
+    let body_bytes = if let Some(sendfile_path) = response_headers.get(crate::headers::X_SENDFILE_HEADER) {
+        if let Ok(path) = sendfile_path.to_str() {
+            match tokio::fs::canonicalize(path).await {
+                Ok(canonical) => {
+                    match tokio::fs::read(&canonical).await {
+                        Ok(file_data) => {
+                            tracing::info!("X-Sendfile served: {} ({} bytes)", canonical.display(), file_data.len());
+                            Bytes::from(file_data)
+                        }
+                        Err(e) => {
+                            tracing::error!("X-Sendfile read failed: {}: {}", canonical.display(), e);
+                            body_bytes
+                        }
+                    }
+                }
+                Err(_) => {
+                    tracing::warn!("X-Sendfile path not found: {}", path);
+                    body_bytes
+                }
+            }
+        } else {
+            body_bytes
+        }
+    } else if body_bytes.is_empty()
+        && crate::headers::is_detect_content_type_header_present(response_headers)
+    {
+        let file_path = format!("/var/opt/gitlab/gitlab-rails{}", uri.path());
+        match tokio::fs::canonicalize(&file_path).await {
+            Ok(canonical) => {
+                if canonical.starts_with("/var/opt/gitlab/gitlab-rails") {
+                    match tokio::fs::read(&canonical).await {
+                        Ok(file_data) => {
+                            tracing::info!("Served file from disk: {} ({} bytes)", canonical.display(), file_data.len());
+                            Bytes::from(file_data)
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to read file from disk {}: {}", canonical.display(), e);
+                            body_bytes
+                        }
+                    }
+                } else {
+                    tracing::warn!("Detect-content-type path traversal attempt: {}", file_path);
+                    body_bytes
+                }
+            }
+            Err(_) => {
+                body_bytes
+            }
+        }
+    } else {
+        body_bytes
+    };
+
+    if let Ok(body_text) = std::str::from_utf8(&body_bytes) {
+        if let Some(inject_response) = senddata::intercept_send_data(
+            status,
+            &filtered,
+            body_text,
+            &state.injecters,
+        ).await {
+            return Ok(inject_response);
+        }
+    }
+
+    if let Some(ref cache) = state.cache {
+        if *method == Method::GET && status.is_success() {
+            let content_type = filtered
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("application/octet-stream")
+                .to_string();
+            let cache_key = generate_cache_key(method, uri);
+            let cache_headers: Vec<(String, String)> = filtered
+                .iter()
+                .filter_map(|(k, v)| {
+                    let key = k.as_str().to_lowercase();
+                    match key.as_str() {
+                        "cache-control" | "etag" | "last-modified" | "content-type"
+                        | "x-content-type-options" | "x-frame-options" | "x-xss-protection"
+                        | "x-permitted-cross-domain-policies" | "referrer-policy"
+                        | "permissions-policy" | "x-ua-compatible" | "x-gitlab-meta"
+                        | "x-request-id" | "x-download-options" => {
+                            v.to_str().ok().map(|s| (k.as_str().to_string(), s.to_string()))
+                        }
+                        _ => None,
+                    }
+                })
+                .collect();
+            cache.set(cache_key.clone(), body_bytes.clone(), content_type, cache_headers, None).await;
+            tracing::info!(cache_key = %cache_key, size = body_bytes.len(), "Cache STORE");
+        }
+    }
+
+    if *method == Method::GET && status.is_success() && !filtered.contains_key("etag") {
+        let etag = format!("\"{:x}\"", md5::compute(&body_bytes));
+        filtered.insert("etag", etag.parse().unwrap());
+    }
+
+    if *method == Method::GET && status.is_success() {
+        if let Some(if_none_match) = request_headers.get("if-none-match") {
+            if let Some(etag) = filtered.get("etag") {
+                if let (Ok(client_etag), Ok(server_etag)) = (if_none_match.to_str(), etag.to_str()) {
+                    if client_etag == server_etag || client_etag == "*" {
+                        return Ok(StatusCode::NOT_MODIFIED.into_response());
+                    }
+                }
+            }
+        }
+    }
+
+    Ok((status, filtered, body_bytes).into_response())
+}
+
 async fn proxy_via_tcp(
     state: &AppState,
     method: Method,
@@ -496,138 +623,10 @@ async fn proxy_via_tcp(
                 }
             }
 
-            // Apply forwardheaders filtering to response
-            let mut filtered_response_headers = forwardheaders::forward_response_headers(
-                &response_headers,
-                None,
-                &[],
-            );
-
             // Read response body as bytes (preserves binary data)
             let resp_body = response.bytes().await.unwrap_or_default();
 
-            // Handle X-Sendfile: Rails returns file path in x-sendfile header, workhorse serves it
-            // Check original response_headers (before filtering) since forward_response_headers strips x-sendfile
-            let resp_body = if let Some(sendfile_path) = response_headers.get(crate::headers::X_SENDFILE_HEADER) {
-                if let Ok(path) = sendfile_path.to_str() {
-                    match tokio::fs::canonicalize(path).await {
-                        Ok(canonical) => {
-                            match tokio::fs::read(&canonical).await {
-                                Ok(file_data) => {
-                                    tracing::info!("X-Sendfile served: {} ({} bytes)", canonical.display(), file_data.len());
-                                    Bytes::from(file_data)
-                                }
-                                Err(e) => {
-                                    tracing::error!("X-Sendfile read failed: {}: {}", canonical.display(), e);
-                                    resp_body
-                                }
-                            }
-                        }
-                        Err(_) => {
-                            tracing::warn!("X-Sendfile path not found: {}", path);
-                            resp_body
-                        }
-                    }
-                } else {
-                    resp_body
-                }
-            }
-            // Handle gitlab-workhorse-detect-content-type: read file from disk when body is empty
-            // Check original response_headers since forward_response_headers strips this header
-            else if resp_body.is_empty()
-                && crate::headers::is_detect_content_type_header_present(&response_headers)
-            {
-                let file_path = format!("/var/opt/gitlab/gitlab-rails{}", uri.path());
-                match tokio::fs::canonicalize(&file_path).await {
-                    Ok(canonical) => {
-                        if canonical.starts_with("/var/opt/gitlab/gitlab-rails") {
-                            match tokio::fs::read(&canonical).await {
-                                Ok(file_data) => {
-                                    tracing::debug!("Served file from disk: {} ({} bytes)", canonical.display(), file_data.len());
-                                    Bytes::from(file_data)
-                                }
-                                Err(e) => {
-                                    tracing::error!("Failed to read file from disk {}: {}", canonical.display(), e);
-                                    resp_body
-                                }
-                            }
-                        } else {
-                            tracing::warn!("Detect-content-type path traversal attempt: {}", file_path);
-                            resp_body
-                        }
-                    }
-                    Err(_) => {
-                        resp_body
-                    }
-                }
-            } else {
-                resp_body
-            };
-
-            // Check for send-data injection (only for text responses)
-            if let Ok(body_text) = std::str::from_utf8(&resp_body) {
-                if let Some(inject_response) = senddata::intercept_send_data(
-                    status,
-                    &filtered_response_headers,
-                    body_text,
-                    &state.injecters,
-                ).await {
-                    return Ok(inject_response);
-                }
-            }
-
-            // Cache successful GET responses
-            if let Some(ref cache) = state.cache {
-                if method == Method::GET && status.is_success() {
-                    let content_type = filtered_response_headers
-                        .get("content-type")
-                        .and_then(|v| v.to_str().ok())
-                        .unwrap_or("application/octet-stream")
-                        .to_string();
-                    let cache_key = generate_cache_key(&method, &uri);
-                    let cache_headers: Vec<(String, String)> = filtered_response_headers
-                        .iter()
-                        .filter_map(|(k, v)| {
-                            let key = k.as_str().to_lowercase();
-                            match key.as_str() {
-                                "cache-control" | "etag" | "last-modified" | "content-type"
-                                | "x-content-type-options" | "x-frame-options" | "x-xss-protection"
-                                | "x-permitted-cross-domain-policies" | "referrer-policy"
-                                | "permissions-policy" | "x-ua-compatible" | "x-gitlab-meta"
-                                | "x-request-id" | "x-download-options" => {
-                                    v.to_str().ok().map(|s| (k.as_str().to_string(), s.to_string()))
-                                }
-                                _ => None,
-                            }
-                        })
-                        .collect();
-                    cache.set(cache_key.clone(), resp_body.clone(), content_type, cache_headers, None).await;
-                    tracing::info!(cache_key = %cache_key, size = resp_body.len(), "Cache STORE");
-                }
-            }
-
-            // Add ETag header for successful GET responses if not already present
-            if method == Method::GET && status.is_success() && !filtered_response_headers.contains_key("etag") {
-                let etag = format!("\"{:x}\"", md5::compute(&resp_body));
-                filtered_response_headers.insert("etag", etag.parse().unwrap());
-            }
-
-            // Handle conditional requests (If-None-Match)
-            if method == Method::GET && status.is_success() {
-                if let Some(if_none_match) = headers.get("if-none-match") {
-                    if let Some(etag) = filtered_response_headers.get("etag") {
-                        if let (Ok(client_etag), Ok(server_etag)) = (if_none_match.to_str(), etag.to_str()) {
-                            if client_etag == server_etag || client_etag == "*" {
-                                return Ok(StatusCode::NOT_MODIFIED.into_response());
-                            }
-                        }
-                    }
-                }
-            }
-
-            let filtered_response_headers = filtered_response_headers;
-
-            Ok((status, filtered_response_headers, resp_body).into_response())
+            return process_response_pipeline(state, &method, &uri, &headers, status, &response_headers, resp_body).await;
         }
         Err(e) => {
             tracing::error!("Proxy error: {}", e);
@@ -736,13 +735,6 @@ async fn proxy_via_unix_socket(
         }
     }
 
-    // Apply forwardheaders filtering
-    let filtered_response_headers = forwardheaders::forward_response_headers(
-        &response_headers,
-        None,
-        &[],
-    );
-
     let collected = resp.into_body().collect().await.map_err(|e| {
         tracing::error!("Unix socket body read error: {}", e);
         StatusCode::BAD_GATEWAY
@@ -760,88 +752,7 @@ async fn proxy_via_unix_socket(
         );
     }
 
-    // Handle X-Sendfile: Rails returns file path in x-sendfile header, workhorse serves it
-    // Check original response_headers since forward_response_headers strips x-sendfile
-    let body_bytes = if let Some(sendfile_path) = response_headers.get(crate::headers::X_SENDFILE_HEADER) {
-        if let Ok(path) = sendfile_path.to_str() {
-            match tokio::fs::read(path).await {
-                Ok(file_data) => {
-                    tracing::info!("X-Sendfile served: {} ({} bytes)", path, file_data.len());
-                    Bytes::from(file_data)
-                }
-                Err(e) => {
-                    tracing::error!("X-Sendfile read failed: {}: {}", path, e);
-                    body_bytes
-                }
-            }
-        } else {
-            body_bytes
-        }
-    }
-    // Handle gitlab-workhorse-detect-content-type: read file from disk when body is empty
-    else if body_bytes.is_empty()
-        && crate::headers::is_detect_content_type_header_present(&response_headers)
-    {
-        let file_path = format!("/var/opt/gitlab/gitlab-rails{}", uri.path());
-        match tokio::fs::read(&file_path).await {
-            Ok(file_data) => {
-                tracing::info!("Served file from disk: {} ({} bytes)", file_path, file_data.len());
-                Bytes::from(file_data)
-            }
-            Err(e) => {
-                tracing::error!("Failed to read file from disk: {}: {}", file_path, e);
-                body_bytes
-            }
-        }
-    } else {
-        body_bytes
-    };
-
-    // Check for send-data injection (only for text responses)
-    if let Ok(body_text) = std::str::from_utf8(&body_bytes) {
-        if let Some(inject_response) = senddata::intercept_send_data(
-            status,
-            &filtered_response_headers,
-            body_text,
-            &state.injecters,
-        ).await {
-            return Ok(inject_response);
-        }
-    }
-
-    let filtered_response_headers = filtered_response_headers;
-
-    // Cache successful GET responses
-    if let Some(ref cache) = state.cache {
-        if method == Method::GET && status.is_success() {
-            let content_type = filtered_response_headers
-                .get("content-type")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("application/octet-stream")
-                .to_string();
-            let cache_key = generate_cache_key(&method, &uri);
-            let cache_headers: Vec<(String, String)> = filtered_response_headers
-                .iter()
-                .filter_map(|(k, v)| {
-                    let key = k.as_str().to_lowercase();
-                    match key.as_str() {
-                        "cache-control" | "etag" | "last-modified" | "content-type"
-                        | "x-content-type-options" | "x-frame-options" | "x-xss-protection"
-                        | "x-permitted-cross-domain-policies" | "referrer-policy"
-                        | "permissions-policy" | "x-ua-compatible" | "x-gitlab-meta"
-                        | "x-request-id" | "x-download-options" => {
-                            v.to_str().ok().map(|s| (k.as_str().to_string(), s.to_string()))
-                        }
-                        _ => None,
-                    }
-                })
-                .collect();
-            cache.set(cache_key.clone(), body_bytes.clone(), content_type, cache_headers, None).await;
-            tracing::info!(cache_key = %cache_key, size = body_bytes.len(), "Cache STORE");
-        }
-    }
-
-    Ok((status, filtered_response_headers, body_bytes).into_response())
+    process_response_pipeline(state, &method, &uri, &headers, status, &response_headers, body_bytes).await
 }
 
 fn strip_secure_from_set_cookie(headers: &mut HeaderMap) {
@@ -869,7 +780,7 @@ fn strip_secure_from_set_cookie(headers: &mut HeaderMap) {
 pub async fn proxy_websocket(
     State(state): State<AppState>,
     uri: Uri,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
     let ws_host = state.proxy.backend_url.host_str().unwrap_or("localhost").to_string();
     let ws_port = state.proxy.backend_url.port().unwrap_or(80);
@@ -1025,8 +936,8 @@ async fn proxy_via_git_backend(
 
 /// Proxy git request via direct Gitaly gRPC with sidechannel support
 async fn proxy_via_gitaly(
-    state: &AppState,
-    method: Method,
+    _state: &AppState,
+    _method: Method,
     uri: Uri,
     headers: HeaderMap,
     body: Body,

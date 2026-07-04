@@ -2,7 +2,6 @@
 
 use bytes::Bytes;
 use moka::future::Cache;
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;

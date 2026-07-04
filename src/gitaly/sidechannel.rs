@@ -379,6 +379,7 @@ impl SidechannelStream {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn write_all(&mut self, data: &[u8]) -> io::Result<()> {
         futures::io::AsyncWriteExt::write_all(&mut self.stream, data).await
     }
@@ -425,10 +426,12 @@ impl SidechannelStream {
         Ok(buf.len() - before)
     }
 
+    #[allow(dead_code)]
     pub async fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
         futures::io::AsyncReadExt::read_exact(&mut self.stream, buf).await
     }
 
+    #[allow(dead_code)]
     pub async fn shutdown(&mut self) -> io::Result<()> {
         // Flush before closing to ensure all data is sent
         futures::io::AsyncWriteExt::flush(&mut self.stream).await?;

@@ -90,6 +90,7 @@ fix();
 new MutationObserver(function(){fix()}).observe(document.documentElement,{childList:true,subtree:true});
 })();"#;
 
+#[allow(dead_code)]
 pub const WEB_VITALS_JS: &str = r#"(function(){
 var s=document.createElement('script');
 s.src='https://cdn.jsdelivr.net/npm/web-vitals@3/dist/web-vitals.iife.js';

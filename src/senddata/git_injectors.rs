@@ -6,7 +6,7 @@ use axum::{
 use serde::Deserialize;
 use std::path::PathBuf;
 
-use super::super::gitaly::{self, GitalyClient, GitalyServer, RepoInfo};
+use super::super::gitaly::{GitalyClient, GitalyServer, RepoInfo};
 
 /// Gitaly server configuration (Go Workhorse compatible)
 #[derive(Debug, Deserialize)]

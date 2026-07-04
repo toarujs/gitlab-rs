@@ -6,8 +6,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use prost::Message;
-
 pub mod gitaly {
     tonic::include_proto!("gitaly");
 }
@@ -18,9 +16,9 @@ use gitaly::{
     repository_service_client::RepositoryServiceClient,
     smart_http_service_client::SmartHttpServiceClient,
     GetArchiveRequest, GetBlobRequest, GetSnapshotRequest,
-    InfoRefsRequest, InfoRefsResponse,
-    PostReceivePackRequest, PostReceivePackResponse,
-    PostUploadPackRequest, PostUploadPackResponse,
+    InfoRefsRequest,
+    PostUploadPackRequest,
+    PostReceivePackRequest,
     PostUploadPackWithSidechannelRequest,
     RawDiffRequest, RawPatchRequest,
     Repository,
@@ -31,6 +29,7 @@ use tonic::transport::Channel;
 pub struct GitalyServer {
     pub address: String,
     pub token: String,
+    #[allow(dead_code)]
     pub call_metadata: HashMap<String, String>,
 }
 
@@ -146,6 +145,7 @@ impl GitalyClient {
         Ok(data)
     }
 
+    #[allow(dead_code)]
     pub async fn post_upload_pack(
         &mut self,
         repo: &RepoInfo,
@@ -234,7 +234,7 @@ impl GitalyClient {
         tracing::info!("yamux: received {} bytes from sidechannel", pack_data.len());
 
         // Wait for gRPC call to complete
-        let grpc_result = grpc_handle.await
+        let _grpc_result = grpc_handle.await
             .map_err(|_| tonic::Status::internal("gRPC task failed"))??;
         
         tracing::info!("yamux: gRPC call completed, pack_data={} bytes", pack_data.len());
@@ -385,11 +385,13 @@ impl GitalyClient {
     }
 }
 
+#[allow(dead_code)]
 pub struct GitalyPool {
     clients: Arc<Mutex<HashMap<String, Arc<Mutex<GitalyClient>>>>>,
     server: GitalyServer,
 }
 
+#[allow(dead_code)]
 impl GitalyPool {
     pub fn new(server: GitalyServer) -> Self {
         Self {
@@ -416,6 +418,7 @@ impl GitalyPool {
     }
 }
 
+#[allow(dead_code)]
 pub fn parse_gitaly_address(address: &str) -> Option<(String, u16)> {
     if address.starts_with("unix:") {
         return Some((address.to_string(), 0));
@@ -430,6 +433,7 @@ pub fn parse_gitaly_address(address: &str) -> Option<(String, u16)> {
     Some((address.to_string(), 8075))
 }
 
+#[allow(dead_code)]
 pub fn resolve_repo_path(gitaly_repo: &Repository) -> Result<PathBuf, std::io::Error> {
     let relative = &gitaly_repo.relative_path;
     let default_path = format!("/var/opt/gitlab/git-data/repositories/{}", relative);
