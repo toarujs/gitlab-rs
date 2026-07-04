@@ -362,7 +362,7 @@ pub async fn proxy_request_streaming(
                         }
                     }
                 }
-                return Ok((StatusCode::OK, response_headers, entry.data.to_vec()).into_response());
+                return Ok((StatusCode::OK, response_headers, entry.data).into_response());
             }
         }
     }
