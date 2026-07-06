@@ -124,12 +124,10 @@ pub async fn intercept_send_data(
     let (prefix, json_data) = decode_send_data(header_str)?;
 
     // Find injecter with matching prefix (registry uses "send-data:PREFIX" format)
-    let injecter = registry.find(&format!("send-data:{}", prefix)).await
-        .or_else(|| {
-            // Fallback: try finding with just the prefix
-            let rt = tokio::runtime::Handle::current();
-            rt.block_on(registry.find(&prefix))
-        })?;
+    let injecter = match registry.find(&format!("send-data:{}", prefix)).await {
+        Some(injecter) => injecter,
+        None => registry.find(&prefix).await?,
+    };
 
     let fake_headers = HeaderMap::new();
     match (injecter.inject)(json_data, fake_headers).await {

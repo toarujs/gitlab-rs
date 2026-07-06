@@ -12,6 +12,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
+use tokio::task::JoinHandle;
 use tower::ServiceBuilder;
 use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
 
@@ -51,6 +52,7 @@ mod redis;
 mod rejectmethods;
 mod routes;
 mod secret;
+mod security_headers;
 mod senddata;
 mod state;
 mod staticpages;
@@ -299,6 +301,37 @@ async fn register_injecters(registry: &senddata::InjecterRegistry) {
     }
 }
 
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(unix)]
+    {
+        tokio::select! {
+            _ = ctrl_c => {},
+            _ = terminate => {},
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        ctrl_c.await;
+    }
+
+    tracing::info!("Shutdown signal received, starting graceful shutdown");
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -320,8 +353,8 @@ async fn main() -> anyhow::Result<()> {
         .map(|s| s.to_string())
         .unwrap_or_else(|| resolved_backend.clone());
     let document_root =
-        if cli.document_root == "public" && std::env::var("GITLAB_DOCUMENT_ROOT").is_ok() {
-            std::env::var("GITLAB_DOCUMENT_ROOT").unwrap()
+        if cli.document_root == "public" {
+            std::env::var("GITLAB_DOCUMENT_ROOT").unwrap_or_else(|_| cli.document_root.clone())
         } else {
             cli.document_root.clone()
         };
@@ -758,6 +791,7 @@ async fn main() -> anyhow::Result<()> {
         .layer(middleware::from_fn(loadshedding::load_shedding_middleware))
         .layer(middleware::from_fn_with_state(app_state.clone(), ratelimit::rate_limit_middleware))
         .layer(middleware::from_fn(device_detection::device_detection_middleware))
+        .layer(middleware::from_fn(security_headers::security_headers_middleware))
         .with_state(app_state.clone());
 
     let addr: SocketAddr = cli
@@ -772,7 +806,7 @@ async fn main() -> anyhow::Result<()> {
 
     let health_state = app_state.health.clone();
     let backend_health_url = app_state.proxy.backend_url.join("/health").ok();
-    tokio::spawn(async move {
+    let _health_handle: JoinHandle<()> = tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         if let Some(url) = backend_health_url {
             if health::check_backend_health(url.as_ref()).await {
@@ -788,7 +822,7 @@ async fn main() -> anyhow::Result<()> {
     });
 
     let rate_limit_state = app_state.rate_limit.clone();
-    tokio::spawn(async move {
+    let _rate_limit_handle: JoinHandle<()> = tokio::spawn(async move {
         let duration = std::time::Duration::from_secs(300);
         loop {
             tokio::time::sleep(duration).await;
@@ -823,7 +857,7 @@ async fn main() -> anyhow::Result<()> {
                     // Remove existing socket file
                     let _ = std::fs::remove_file(&callback_socket);
                     
-                    tokio::spawn(async move {
+                    let _gitaly_handle: JoinHandle<()> = tokio::spawn(async move {
                         match tokio::net::UnixListener::bind(&callback_socket) {
                             Ok(uds) => {
                                 // Set socket permissions to 0777 so Gitaly (git user) can connect
@@ -851,7 +885,9 @@ async fn main() -> anyhow::Result<()> {
             
             let listener = TcpListener::bind(addr).await?;
             tracing::info!("Listening on {}", addr);
-            axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
+            axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
+                .with_graceful_shutdown(shutdown_signal())
+                .await?;
         }
     }
 
@@ -889,41 +925,54 @@ async fn serve_with_tls(
     let listener = TcpListener::bind(addr).await?;
     tracing::info!("TLS server listening on {}", addr);
 
+    let shutdown = shutdown_signal();
+    tokio::pin!(shutdown);
+
     loop {
-        let (tcp_stream, remote_addr) = listener.accept().await?;
-        let tls_acceptor = tls_acceptor.clone();
-        let app = app.clone();
+        tokio::select! {
+            result = listener.accept() => {
+                let (tcp_stream, remote_addr) = result?;
+                let tls_acceptor = tls_acceptor.clone();
+                let app = app.clone();
 
-        tokio::spawn(async move {
-            let tls_stream = match tls_acceptor.accept(tcp_stream).await {
-                Ok(stream) => stream,
-                Err(e) => {
-                    tracing::error!("TLS handshake failed from {}: {}", remote_addr, e);
-                    return;
-                }
-            };
+                tokio::spawn(async move {
+                    let tls_stream = match tls_acceptor.accept(tcp_stream).await {
+                        Ok(stream) => stream,
+                        Err(e) => {
+                            tracing::error!("TLS handshake failed from {}: {}", remote_addr, e);
+                            return;
+                        }
+                    };
 
-            let protocol = tls_stream.get_ref().1.alpn_protocol();
-            if protocol == Some(b"h2") {
-                tracing::debug!("HTTP/2 connection from {}", remote_addr);
-            } else {
-                tracing::debug!("HTTP/1.1 connection from {}", remote_addr);
+                    let protocol = tls_stream.get_ref().1.alpn_protocol();
+                    if protocol == Some(b"h2") {
+                        tracing::debug!("HTTP/2 connection from {}", remote_addr);
+                    } else {
+                        tracing::debug!("HTTP/1.1 connection from {}", remote_addr);
+                    }
+
+                    let service = tower::ServiceBuilder::new().service(app);
+
+                    if let Err(e) =
+                        hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new())
+                            .serve_connection(
+                                hyper_util::rt::TokioIo::new(tls_stream),
+                                hyper_util::service::TowerToHyperService::new(service),
+                            )
+                            .await
+                    {
+                        tracing::error!("Error serving connection from {}: {}", remote_addr, e);
+                    }
+                });
             }
-
-            let service = tower::ServiceBuilder::new().service(app);
-
-            if let Err(e) =
-                hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new())
-                    .serve_connection(
-                        hyper_util::rt::TokioIo::new(tls_stream),
-                        hyper_util::service::TowerToHyperService::new(service),
-                    )
-                    .await
-            {
-                tracing::error!("Error serving connection from {}: {}", remote_addr, e);
+            _ = &mut shutdown => {
+                tracing::info!("TLS server shutting down gracefully");
+                break;
             }
-        });
+        }
     }
+
+    Ok(())
 }
 
 async fn serve_unix(listener: tokio::net::UnixListener, app: Router) -> anyhow::Result<()> {
