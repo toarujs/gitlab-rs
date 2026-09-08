@@ -15,7 +15,7 @@ use crate::secret::Secret;
 use crate::state::AppState;
 
 const MAX_FILES: usize = 10;
-const WORKHORSE_TMP: &str = "/var/opt/gitlab/gitlab-rails/tmp/workhorse";
+const WORKHORSE_TMP: &str = "/var/opt/gitlab/gitlab-rails/shared/artifacts/tmp/uploads";
 
 pub async fn accelerate_multipart_request(
     state: AppState,
@@ -37,6 +37,22 @@ pub async fn accelerate_multipart_request(
     headers.remove(header::CONTENT_TYPE);
     headers.remove(header::CONTENT_LENGTH);
     headers.remove(header::TRANSFER_ENCODING);
+    if !rewritten.rewritten_fields.is_empty() {
+        match state.secret.sign_multipart_fields_jwt(&rewritten.rewritten_fields) {
+            Ok(token) => match token.parse() {
+                Ok(value) => {
+                    headers.insert("gitlab-workhorse-multipart-fields", value);
+                }
+                Err(_) => {
+                    return (StatusCode::INTERNAL_SERVER_ERROR, "invalid multipart jwt").into_response();
+                }
+            },
+            Err(e) => {
+                tracing::error!("Failed to sign multipart fields JWT: {}", e);
+                return (StatusCode::INTERNAL_SERVER_ERROR, "upload accelerate failed").into_response();
+            }
+        }
+    }
     let content_type = format!("multipart/form-data; boundary={}", rewritten.boundary);
     match content_type.parse() {
         Ok(value) => {
@@ -65,6 +81,7 @@ pub async fn accelerate_multipart_request(
 struct RewrittenForm {
     boundary: String,
     body: Vec<u8>,
+    rewritten_fields: Vec<String>,
 }
 
 async fn rewrite_multipart(
@@ -75,6 +92,7 @@ async fn rewrite_multipart(
 ) -> Result<RewrittenForm, StatusCode> {
     let mut fields: Vec<(String, String)> = Vec::new();
     let mut file_count = 0usize;
+    let mut rewritten_fields: Vec<String> = Vec::new();
 
     while let Some(mut field) = multipart.next_field().await.map_err(|e| {
         tracing::error!("Failed to read multipart field: {}", e);
@@ -96,6 +114,7 @@ async fn rewrite_multipart(
                 return Err(StatusCode::BAD_REQUEST);
             }
             let saved = persist_file_field(secret, tmp_dir, max_size, &name, &filename, &mut field).await?;
+            rewritten_fields.push(name.clone());
             fields.extend(saved);
         } else {
             let text = field.text().await.map_err(|e| {
@@ -106,7 +125,7 @@ async fn rewrite_multipart(
         }
     }
 
-    Ok(encode_multipart_fields(&fields))
+    Ok(encode_multipart_fields(&fields, rewritten_fields))
 }
 
 fn is_reserved_field(name: &str) -> bool {
@@ -152,6 +171,7 @@ async fn persist_file_field(
         tracing::error!("Failed to create workhorse temp dir {}: {}", tmp_dir.display(), e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+    chown_git(tmp_dir);
 
     let tmp_path = tmp_dir.join(Uuid::new_v4().to_string());
     let mut file = tokio::fs::File::create(&tmp_path).await.map_err(|e| {
@@ -194,6 +214,7 @@ async fn persist_file_field(
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = tokio::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o644)).await;
+        chown_git(&tmp_path);
     }
 
     let path_str = tmp_path.to_string_lossy().into_owned();
@@ -233,7 +254,7 @@ async fn persist_file_field(
     ])
 }
 
-fn encode_multipart_fields(fields: &[(String, String)]) -> RewrittenForm {
+fn encode_multipart_fields(fields: &[(String, String)], rewritten_fields: Vec<String>) -> RewrittenForm {
     let boundary = format!("----GitLabWorkhorseRs{}", Uuid::new_v4().simple());
     let mut body = Vec::new();
     for (name, value) in fields {
@@ -248,7 +269,33 @@ fn encode_multipart_fields(fields: &[(String, String)]) -> RewrittenForm {
     body.extend_from_slice(b"--");
     body.extend_from_slice(boundary.as_bytes());
     body.extend_from_slice(b"--\r\n");
-    RewrittenForm { boundary, body }
+    RewrittenForm {
+        boundary,
+        body,
+        rewritten_fields,
+    }
+}
+
+fn git_uid_gid() -> Option<(u32, u32)> {
+    let passwd = std::fs::read_to_string("/etc/passwd").ok()?;
+    for line in passwd.lines() {
+        let mut parts = line.split(':');
+        if parts.next()? != "git" {
+            continue;
+        }
+        let _password = parts.next()?;
+        let uid = parts.next()?.parse().ok()?;
+        let gid = parts.next()?.parse().ok()?;
+        return Some((uid, gid));
+    }
+    None
+}
+
+fn chown_git(path: &Path) {
+    #[cfg(unix)]
+    if let Some((uid, gid)) = git_uid_gid() {
+        let _ = std::os::unix::fs::chown(path, Some(uid), Some(gid));
+    }
 }
 
 #[cfg(test)]
@@ -275,10 +322,11 @@ mod tests {
         let form = encode_multipart_fields(&[
             ("file.path".into(), "/tmp/a".into()),
             ("file.size".into(), "4".into()),
-        ]);
+        ], vec!["file".into()]);
         let body = String::from_utf8(form.body).unwrap();
         assert!(body.contains("name=\"file.path\""));
         assert!(body.contains("/tmp/a"));
         assert!(body.contains(&form.boundary));
+        assert_eq!(form.rewritten_fields, vec!["file".to_string()]);
     }
 }

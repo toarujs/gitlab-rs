@@ -125,6 +125,24 @@ impl Secret {
         self.sign_payload(&payload)
     }
 
+    pub fn sign_multipart_fields_jwt(
+        &self,
+        rewritten_fields: &[String],
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let mut fields = serde_json::Map::new();
+        for name in rewritten_fields {
+            fields.insert(name.clone(), serde_json::Value::String(name.clone()));
+        }
+        let now = Utc::now().timestamp();
+        let payload = serde_json::json!({
+            "iss": JWT_ISSUER,
+            "iat": now,
+            "exp": now + 300,
+            "rewritten_fields": fields,
+        });
+        self.sign_payload(&payload)
+    }
+
     pub fn verify_jwt(&self, token: &str) -> Result<DefaultClaims, String> {
         use hmac::{Hmac, Mac};
         use sha2::Sha256;
@@ -225,6 +243,7 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
 
     #[test]
     fn test_secret_sign_and_verify() {
@@ -258,6 +277,24 @@ mod tests {
         assert_eq!(claims["iss"], "gitlab-workhorse");
         assert_eq!(claims["upload"]["name"], "artifacts.zip");
         assert_eq!(claims["upload"]["path"], "/tmp/a");
+    }
+
+    #[test]
+    fn test_sign_multipart_fields_jwt_lists_rewritten_fields() {
+        let secret = Secret {
+            path: "test".to_string(),
+            bytes: vec![0u8; 32],
+        };
+        let token = secret
+            .sign_multipart_fields_jwt(&["file".to_string()])
+            .unwrap();
+        let payload = token.split('.').nth(1).unwrap();
+        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(payload)
+            .unwrap();
+        let claims: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(claims["iss"], "gitlab-workhorse");
+        assert_eq!(claims["rewritten_fields"]["file"], "file");
     }
 
     #[test]
