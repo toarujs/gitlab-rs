@@ -172,6 +172,24 @@ else
     gitlab-ctl reconfigure
 fi
 
+echo "Disabling official version check and update notifications..."
+gitlab-rails runner '
+begin
+  s = ApplicationSetting.current
+  if s
+    attrs = {}
+    attrs[:version_check_enabled] = false if s.has_attribute?(:version_check_enabled)
+    attrs[:usage_ping_enabled] = false if s.has_attribute?(:usage_ping_enabled)
+    if s.has_attribute?(:whats_new_variant) && defined?(ApplicationSetting.whats_new_variants)
+      attrs[:whats_new_variant] = ApplicationSetting.whats_new_variants[:disabled]
+    end
+    s.update_columns(attrs) unless attrs.empty?
+  end
+rescue => e
+  warn "skip disable version check: #{e.message}"
+end
+' || true
+
 # This must be false when the opt-in PostgreSQL version is the default for pg-upgrade,
 # otherwise it must be true.
 ATTEMPT_AUTO_PG_UPGRADE='false'

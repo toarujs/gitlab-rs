@@ -2,6 +2,19 @@
 
 GitLab CE + Rust Workhorse 替换方案。用 Rust 重写的 HTTP 前端代理替代 Go 版 gitlab-workhorse 和 nginx，单一二进制直接处理 HTTP 流量，通过 unix socket 转发到 Puma。
 
+## 官方版本
+
+对应官方 GitLab CE **19.3.1**（Docker 基础镜像 `gitlab/gitlab-ce:19.3.1-ce.0`，2026-08-26 安全补丁）。
+
+| 项 | 值 |
+|----|----|
+| 官方 CE | 19.3.1 |
+| 镜像 tag | `19.3.1-ce.0` |
+| 上次 rs 打包 | 2026-07-01 |
+| 本次对齐 | 2026-09-08 |
+
+已关闭官方 Version Check / Usage Ping：实例不会请求 `version.gitlab.com`，也不会显示官方更新通知。
+
 ## 架构
 
 ```

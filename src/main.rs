@@ -629,7 +629,7 @@ async fn main() -> anyhow::Result<()> {
         // GraphQL
         .route(
             "/api/graphql",
-            post(proxy::proxy_handler),
+            get(proxy::graphql_handler).post(proxy::graphql_handler),
         )
         // Project/Group/User avatars and uploads
         .route(

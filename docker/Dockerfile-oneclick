@@ -1,6 +1,7 @@
 # =============================================================================
 # Stage 1: Clone repo and build Rust binary
 # =============================================================================
+ARG GITLAB_CE_VERSION=19.3.1-ce.0
 FROM rust:1.91-bookworm AS builder
 
 ARG REPO_URL=https://github.com/toarujs/gitlab-rs.git
@@ -32,7 +33,9 @@ RUN cargo build --release && \
 # =============================================================================
 # Stage 2: 最终镜像
 # =============================================================================
-FROM gitlab/gitlab-ce:latest
+FROM gitlab/gitlab-ce:${GITLAB_CE_VERSION}
+
+LABEL gitlab.ce.version="19.3.1"
 
 # 安装 WebP 运行时库
 RUN apt-get update && apt-get install -y libwebp7 && rm -rf /var/lib/apt/lists/*
@@ -57,6 +60,8 @@ COPY --from=builder /build/docker/gitlab-rails-overrides/app/views/user_settings
      /opt/gitlab/embedded/service/gitlab-rails/app/views/user_settings/profiles/show.html.haml
 COPY --from=builder /build/docker/gitlab-rails-overrides/locale/zh_CN/gitlab.po \
      /opt/gitlab/embedded/service/gitlab-rails/locale/zh_CN/gitlab.po
+COPY --from=builder /build/docker/gitlab-rails-overrides/config/initializers/disable_official_version_check.rb \
+     /opt/gitlab/embedded/service/gitlab-rails/config/initializers/disable_official_version_check.rb
 
 # 设置权限
 RUN chmod +x /opt/gitlab/embedded/bin/gitlab-workhorse && \
@@ -64,6 +69,8 @@ RUN chmod +x /opt/gitlab/embedded/bin/gitlab-workhorse && \
 
 # 追加 LFS 配置到模板
 RUN echo 'gitlab_rails["lfs_enabled"] = true' >> /opt/gitlab/etc/gitlab.rb.template
+RUN echo 'gitlab_rails["version_check_enabled"] = false' >> /opt/gitlab/etc/gitlab.rb.template
+RUN echo 'gitlab_rails["usage_ping_enabled"] = false' >> /opt/gitlab/etc/gitlab.rb.template
 
 # 复制 compose 模板文件到镜像内，方便提取
 COPY --from=builder /build/docker-compose.yaml /assets/docker-compose.yaml

@@ -37,6 +37,8 @@ services:
         gitlab_rails["lfs_enabled"] = true
         gitlab_rails["gravatar_enabled"] = false
         gitlab_rails["initial_root_password"] = "${ROOT_PASSWORD:?Please set ROOT_PASSWORD in .env}"
+        gitlab_rails["version_check_enabled"] = false
+        gitlab_rails["usage_ping_enabled"] = false
         gitlab_rails["application_settings_cache_seconds"] = 60
         gitlab_rails["rack_attack_git_basic_auth"] = { "enabled" => false }
     ports:

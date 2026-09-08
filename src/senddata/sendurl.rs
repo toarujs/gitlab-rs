@@ -71,6 +71,7 @@ fn is_ssrf_safe(url_str: &str) -> bool {
             "127.0.0.1", "0.0.0.0", "::1",
             "localhost", "localhost.localdomain",
             "169.254.169.254",
+            "version.gitlab.com", "version.gitlab.cn",
         ];
 
         if blocked_hosts.contains(&host) {
@@ -222,5 +223,11 @@ mod tests {
         assert!(!is_ssrf_safe("file:///etc/passwd"));
         assert!(!is_ssrf_safe("ftp://example.com/file"));
         assert!(!is_ssrf_safe("gopher://localhost/test"));
+    }
+
+    #[test]
+    fn test_block_official_version_check_host() {
+        assert!(!is_ssrf_safe("https://version.gitlab.com/check.json"));
+        assert!(!is_ssrf_safe("https://version.gitlab.cn/check.svg"));
     }
 }

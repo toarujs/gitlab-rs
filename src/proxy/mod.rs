@@ -154,6 +154,36 @@ pub struct ProxyQuery {
     pub path: String,
 }
 
+/// GraphQL entry: allow POST and websocket GET; block GET mutations (CVE-2026-19650).
+pub async fn graphql_handler(
+    State(state): State<AppState>,
+    req: axum::http::Request<Body>,
+) -> Result<Response, StatusCode> {
+    if is_blocked_graphql_get_mutation(req.method(), req.uri(), req.headers()) {
+        tracing::warn!("Blocked GraphQL mutation via GET");
+        return Err(StatusCode::METHOD_NOT_ALLOWED);
+    }
+    proxy_handler(State(state), req).await
+}
+
+fn is_blocked_graphql_get_mutation(method: &Method, uri: &Uri, headers: &HeaderMap) -> bool {
+    if method != Method::GET {
+        return false;
+    }
+    let is_ws = headers
+        .get("upgrade")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.eq_ignore_ascii_case("websocket"))
+        .unwrap_or(false);
+    if is_ws {
+        return false;
+    }
+    uri.query()
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .contains("mutation")
+}
+
 /// Main proxy handler - streams request body to backend without buffering
 pub async fn proxy_handler(
     State(state): State<AppState>,
@@ -1263,5 +1293,31 @@ mod tests {
         let uri: Uri = "/assets/app.js".parse().unwrap();
         let key = generate_cache_key(&method, &uri);
         assert_eq!(key, "GET:/assets/app.js");
+    }
+
+    #[test]
+    fn test_block_graphql_get_mutation() {
+        let uri: Uri = "/api/graphql?query=mutation%7Bfoo%7D".parse().unwrap();
+        assert!(is_blocked_graphql_get_mutation(&Method::GET, &uri, &HeaderMap::new()));
+    }
+
+    #[test]
+    fn test_allow_graphql_get_query() {
+        let uri: Uri = "/api/graphql?query=%7BcurrentUser%7Bid%7D%7D".parse().unwrap();
+        assert!(!is_blocked_graphql_get_mutation(&Method::GET, &uri, &HeaderMap::new()));
+    }
+
+    #[test]
+    fn test_allow_graphql_post_mutation() {
+        let uri: Uri = "/api/graphql".parse().unwrap();
+        assert!(!is_blocked_graphql_get_mutation(&Method::POST, &uri, &HeaderMap::new()));
+    }
+
+    #[test]
+    fn test_allow_graphql_websocket_get() {
+        let uri: Uri = "/api/graphql?query=mutation%7Bfoo%7D".parse().unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("upgrade", HeaderValue::from_static("websocket"));
+        assert!(!is_blocked_graphql_get_mutation(&Method::GET, &uri, &headers));
     }
 }

@@ -90,6 +90,20 @@ fix();
 new MutationObserver(function(){fix()}).observe(document.documentElement,{childList:true,subtree:true});
 })();"#;
 
+pub const DISABLE_OFFICIAL_UPDATE_JS: &str = r#"(function(){
+function hide(){
+var imgs=document.querySelectorAll('img[src*="version.gitlab.com"],img[src*="version.gitlab.cn"]');
+for(var i=0;i<imgs.length;i++){imgs[i].remove();}
+var sels=['[data-testid="whats-new-notification"]','[data-testid="whats-new-menu-item"]','[data-testid="help-dropdown-whats-new"]','.js-check-version','.js-version-status-badge','.version-check-badge'];
+for(var s=0;s<sels.length;s++){
+var nodes=document.querySelectorAll(sels[s]);
+for(var i=0;i<nodes.length;i++){nodes[i].style.display='none';}
+}
+}
+hide();
+new MutationObserver(hide).observe(document.documentElement,{childList:true,subtree:true});
+})();"#;
+
 #[allow(dead_code)]
 pub const WEB_VITALS_JS: &str = r#"(function(){
 var s=document.createElement('script');
@@ -158,6 +172,12 @@ fn defer_scripts(html: &str) -> String {
     }
     result.push_str(remaining);
     result
+}
+
+fn strip_official_update_endpoints(html: &str) -> String {
+    html.replace("https://version.gitlab.com", "about:blank")
+        .replace("http://version.gitlab.com", "about:blank")
+        .replace("https://version.gitlab.cn", "about:blank")
 }
 
 pub async fn inject_into_response(response: Response) -> Response {
@@ -298,10 +318,12 @@ pub fn inject_mobile_html(html: &str) -> String {
         offset += 9;
         injected.insert_str(offset, ABOUT_GITLAB_FIX_JS);
         offset += ABOUT_GITLAB_FIX_JS.len();
+        injected.insert_str(offset, DISABLE_OFFICIAL_UPDATE_JS);
+        offset += DISABLE_OFFICIAL_UPDATE_JS.len();
         injected.insert_str(offset, "</script>\n");
     }
 
-    injected
+    strip_official_update_endpoints(&injected)
 }
 
 #[cfg(test)]
@@ -375,5 +397,13 @@ mod tests {
         let result = defer_scripts(html);
         assert!(result.contains("/foo.js\" defer"));
         assert!(!result.contains("/rails-ujs.js\" defer"));
+    }
+
+    #[test]
+    fn test_strip_official_version_check_url() {
+        let html = r#"<!DOCTYPE html><html><head></head><body><img src="https://version.gitlab.com/check.svg"></body></html>"#;
+        let result = inject_mobile_html(html);
+        assert!(!result.contains("https://version.gitlab.com/check.svg"));
+        assert!(result.contains("whats-new-notification"));
     }
 }
