@@ -181,3 +181,7 @@ ROOT_PASSWORD=<root-password>
 | snowplow | — | 用户行为分析埋点系统 |
 | CSRF | Cross-Site Request Forgery | 跨站请求伪造 |
 | PWA | Progressive Web App | 渐进式 Web 应用 |
+
+## 许可证
+
+继承官方 GitLab CE 许可证（MIT Expat，Copyright (c) 2011-present GitLab Inc.）。完整文本见 `LICENSE`。

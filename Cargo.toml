@@ -3,6 +3,7 @@ name = "gitlab-workhorse-rs"
 version = "0.1.0"
 edition = "2024"
 description = "GitLab Workhorse rewritten in Rust for better performance and lower memory usage"
+license = "MIT"
 
 [dependencies]
 # Web framework
