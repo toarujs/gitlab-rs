@@ -45,6 +45,26 @@ function detect_unclean_start() {
     set -e
 }
 
+function ensure_git_data_owner() {
+    local root="/var/opt/gitlab/git-data"
+    [ -d "$root" ] || return 0
+
+    local need_fix=0
+    local p
+    for p in "$root" "$root/repositories" "$root/repositories/+gitaly" "$root/repositories/@hashed"; do
+        [ -e "$p" ] || continue
+        if [ "$(stat -c %U "$p")" != "git" ]; then
+            need_fix=1
+            break
+        fi
+    done
+
+    if [ "$need_fix" = "1" ]; then
+        echo "Fixing git-data ownership to git:git so Gitaly can start..."
+        chown -R git:git "$root"
+    fi
+}
+
 trap "sigterm_handler; exit" TERM
 
 source /RELEASE
@@ -74,6 +94,7 @@ sleep 3s
 
 # Run unclean start detection & cleanup
 detect_unclean_start
+ensure_git_data_owner
 
 # Legacy block to be removed on 17.0. See: https://gitlab.com/gitlab-org/omnibus-gitlab/-/merge_requests/7035
 # It re-adds support for rsa key types which was removed on 16.0 without going

@@ -117,23 +117,6 @@ docker compose up -d
 
 等待 2-3 分钟（`gitlab-ctl reconfigure` + Puma 预加载），访问 `http://<host>:<HTTP_PORT>` 看到登录页即部署成功。
 
-### 数据迁移
-
-将旧 GitLab 部署的数据目录复制到 compose 所在目录即可：
-
-```bash
-# 旧数据路径示例
-cp -a /old-deploy/config/ ./config/
-cp -a /old-deploy/data/   ./data/
-cp -a /old-deploy/logs/   ./logs/
-cp -a /old-deploy/postgres/ ./postgres/
-cp -a /old-deploy/redis/  ./redis/
-
-docker compose up -d
-```
-
-数据迁移后 entrypoint 会自动用 `GITLAB_OMNIBUS_CONFIG` 覆盖 `gitlab.rb`，`gitlab-secrets.json` 保留原有密钥（CSRF/会话不会失效）。
-
 ### .env 配置
 
 ```bash
@@ -152,6 +135,86 @@ ROOT_PASSWORD=<root-password>
 |------|------|
 | `HTTP_PORT` | HTTP（Rust workhorse 直接处理） |
 | `SSH_PORT` | SSH（git clone） |
+
+## 从官方 CE 移植
+
+适用：原版已经是 `web + postgres + redis`，数据目录为 `config/` `data/` `logs/` `postgres/` `redis/`。把官方 yaml 换成 rs yaml，沿用同一套数据卷。
+
+官方一体机（Postgres 打在 `data/` 里）先拆库，不能只换 yaml。
+
+### 移植前记下这 5 项
+
+从原版 `docker-compose.yaml` 抄下来，写进新 `.env`，端口和 `external_url` 必须和 WAF/反代一致：
+
+```bash
+GITLAB_HOSTNAME=<原 hostname>
+EXTERNAL_URL=<原 external_url，含 https 和端口>
+HTTP_PORT=<原 HTTP 宿主机端口>
+SSH_PORT=<原 SSH 宿主机端口>
+DB_USER=<原 db_username>
+DB_PASSWORD=<原 db_password>
+ROOT_PASSWORD=<任意，已有实例不会改 root 密码>
+```
+
+镜像用本机已有的 `toarujs/gitlab-rs:19.3.1`（或先按上文构建）。yaml 里的 `image:` 与这个 tag 对齐。
+
+### 原地切换（推荐）
+
+在原版 compose 目录执行：
+
+```bash
+cp docker-compose.yaml docker-compose.yaml.ce.bak
+cp config/gitlab.rb config/gitlab.rb.ce.bak
+
+# 放入 rs 的 compose，再按上一步改 .env
+cp /path/to/gitlab-rs/docker-compose.yaml ./docker-compose.yaml
+
+# image tag 改成已构建的 rs 镜像
+# 例如：image: toarujs/gitlab-rs:19.3.1
+
+docker compose up -d
+```
+
+rs yaml 会关掉容器内 nginx 和 Go workhorse，由 Rust workhorse 听 `:80`。entrypoint 会用 `GITLAB_OMNIBUS_CONFIG` 覆盖 `gitlab.rb`；`gitlab-secrets.json` 仍在 `config/`，会话和 CSRF 密钥保留。
+
+等 `gitlab-ctl reconfigure` 结束（约 2-3 分钟），打开原来的项目页，确认列表能出来。
+
+entrypoint 会在 Gitaly 启动前检查 `/var/opt/gitlab/git-data`：`+gitaly` / `@hashed` 不是 `git` 时自动 `chown -R git:git`。用 root 拷过数据不用再手敲 chown。
+
+Gitaly 仍起不来、GraphQL 500、页面提示「您的项目无法加载」时：
+
+```bash
+docker compose exec web gitlab-ctl status gitaly
+docker compose exec web ls -ld /var/opt/gitlab/git-data/repositories/+gitaly
+```
+
+`+gitaly` 必须是 `git git`。
+
+### 复制到新目录
+
+```bash
+mkdir -p /new-deploy
+cp -a /old-deploy/config /old-deploy/data /old-deploy/logs /old-deploy/postgres /old-deploy/redis /new-deploy/
+cp /path/to/gitlab-rs/docker-compose.yaml /new-deploy/
+
+# 在 /new-deploy 写 .env，端口不要和旧实例冲突
+cd /new-deploy
+docker compose up -d
+```
+
+`cp -a` 若由 root 执行，`+gitaly` 会变成 `root:root`。entrypoint 启动时会自动改回 `git:git`。
+
+### 切过去之后 yaml 里必须有
+
+```ruby
+nginx["enable"] = false
+gitlab_workhorse["enable"] = false
+puma["socket"] = "/var/opt/gitlab/gitlab-rails/sockets/gitlab.socket"
+postgresql["enable"] = false
+redis["enable"] = false
+```
+
+只改 `image:`、其余仍用官方 nginx 配置时，rs 镜像里没有 nginx 二进制，reconfigure 会失败。
 
 ## 数据卷
 
