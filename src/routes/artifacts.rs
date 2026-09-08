@@ -2,8 +2,8 @@
 
 use axum::{
     body::Body,
-    extract::{Request, State},
-    http::{HeaderMap, StatusCode},
+    extract::{Multipart, Request, State},
+    http::{HeaderMap, Method, StatusCode, Uri},
     response::{IntoResponse, Response},
 };
 use crate::proxy::{self, ProxyState};
@@ -12,33 +12,20 @@ const ARTIFACTS_MAX_SIZE: usize = 500 * 1024 * 1024; // 500MB
 
 pub async fn handle_artifacts_upload(
     State(state): State<crate::state::AppState>,
-    req: Request<Body>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    multipart: Multipart,
 ) -> Response {
-    let content_type = req
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-
-    if !content_type.contains("multipart/form-data") {
-        return (StatusCode::BAD_REQUEST, "Expected multipart/form-data").into_response();
-    }
-
-    let content_length = req
-        .headers()
-        .get("content-length")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(0);
-
-    if content_length > ARTIFACTS_MAX_SIZE {
-        return (StatusCode::PAYLOAD_TOO_LARGE, "Artifact too large").into_response();
-    }
-
-    match proxy::proxy_handler(State(state), req).await {
-        Ok(resp) => resp,
-        Err(status) => (status, "").into_response(),
-    }
+    crate::upload::accelerate::accelerate_multipart_request(
+        state,
+        method,
+        uri,
+        headers,
+        multipart,
+        ARTIFACTS_MAX_SIZE as u64,
+    )
+    .await
 }
 
 pub async fn handle_artifacts_download(

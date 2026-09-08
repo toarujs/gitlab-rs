@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+pub mod accelerate;
+
 use axum::{
     Json,
     extract::{Multipart, Path, State},

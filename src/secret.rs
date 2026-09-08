@@ -90,6 +90,41 @@ impl Secret {
         Ok(format!("{}.{}.{}", header, payload, signature))
     }
 
+    pub fn sign_payload(
+        &self,
+        payload: &serde_json::Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+
+        type HmacSha256 = Hmac<Sha256>;
+
+        let mut mac = HmacSha256::new_from_slice(&self.bytes)?;
+        let header = base64_encode_json(&serde_json::json!({
+            "alg": "HS256",
+            "typ": "JWT"
+        }));
+        let payload = base64_encode_json(payload);
+        let signing_input = format!("{}.{}", header, payload);
+        mac.update(signing_input.as_bytes());
+        let signature = base64_encode_bytes(&mac.finalize().into_bytes());
+        Ok(format!("{}.{}.{}", header, payload, signature))
+    }
+
+    pub fn sign_upload_jwt(
+        &self,
+        upload: &serde_json::Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let now = Utc::now().timestamp();
+        let payload = serde_json::json!({
+            "iss": JWT_ISSUER,
+            "iat": now,
+            "exp": now + 300,
+            "upload": upload,
+        });
+        self.sign_payload(&payload)
+    }
+
     pub fn verify_jwt(&self, token: &str) -> Result<DefaultClaims, String> {
         use hmac::{Hmac, Mac};
         use sha2::Sha256;
@@ -204,6 +239,25 @@ mod tests {
 
         assert_eq!(verified.iss, JWT_ISSUER);
         assert_eq!(verified.jti, claims.jti);
+    }
+
+    #[test]
+    fn test_sign_upload_jwt_contains_upload_claim() {
+        let secret = Secret {
+            path: "test".to_string(),
+            bytes: vec![0u8; 32],
+        };
+        let token = secret
+            .sign_upload_jwt(&serde_json::json!({"name": "artifacts.zip", "path": "/tmp/a", "size": 4}))
+            .unwrap();
+        let payload = token.split('.').nth(1).unwrap();
+        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(payload)
+            .unwrap();
+        let claims: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(claims["iss"], "gitlab-workhorse");
+        assert_eq!(claims["upload"]["name"], "artifacts.zip");
+        assert_eq!(claims["upload"]["path"], "/tmp/a");
     }
 
     #[test]
