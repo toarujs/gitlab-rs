@@ -38,6 +38,30 @@ pub async fn handle_artifacts_download(
     }
 }
 
+pub async fn handle_job_trace(
+    State(state): State<crate::state::AppState>,
+    req: Request<Body>,
+) -> Response {
+    let method = req.method().clone();
+    if method == Method::GET || method == Method::HEAD {
+        match crate::hotpath::trace::accelerate(&state, &req).await {
+            crate::hotpath::trace::AccelResult::Hit(resp) => return resp,
+            crate::hotpath::trace::AccelResult::Fallback { reason, error } => {
+                tracing::warn!(
+                    path_template = %crate::hotpath::TRACE_PATH_TEMPLATE,
+                    reason = %reason,
+                    error = error,
+                    "Job trace accelerate fallback to Puma"
+                );
+            }
+        }
+    }
+    match proxy::proxy_handler(State(state), req).await {
+        Ok(resp) => resp,
+        Err(status) => (status, "").into_response(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

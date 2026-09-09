@@ -6,8 +6,10 @@ use std::time::{Duration, Instant};
 pub mod acl;
 pub mod files;
 pub mod session;
+pub mod trace;
 
 pub const FILES_PATH_TEMPLATE: &str = "/api/v4/projects/:id/repository/files/*";
+pub const TRACE_PATH_TEMPLATE: &str = "/api/v4/projects/:id/jobs/:id/trace";
 
 #[derive(Debug, Clone)]
 pub struct HotPathState {

@@ -19,7 +19,7 @@
 - [x] 3. 检查点 - 确保所有测试通过
   - 确保所有测试通过,如有疑问请询问用户
 
-- [ ] 4. CI job log / trace 加速
+- [x] 4. CI job log / trace 加速
   - 白名单 `GET /api/v4/projects/:id/jobs/:job_id/trace`
   - 本地 artifacts 存在则直接读，支持 Range；不在本地则回源
   - 对应 R4、R6

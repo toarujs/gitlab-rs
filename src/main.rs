@@ -512,6 +512,15 @@ async fn main() -> anyhow::Result<()> {
             "/api/v4/jobs/:job_id/artifacts",
             get(routes::artifacts::handle_artifacts_download),
         )
+        .route(
+            "/api/v4/projects/:project_id/jobs/:job_id/trace",
+            get(routes::artifacts::handle_job_trace)
+                .head(routes::artifacts::handle_job_trace)
+                .post(routes::artifacts::handle_job_trace)
+                .put(routes::artifacts::handle_job_trace)
+                .patch(routes::artifacts::handle_job_trace)
+                .delete(routes::artifacts::handle_job_trace),
+        )
         // Git LFS
         .route(
             "/api/v4/projects/:project_id/lfs/objects/*path",
