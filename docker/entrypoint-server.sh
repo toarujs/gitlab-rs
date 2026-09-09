@@ -65,6 +65,14 @@ function ensure_git_data_owner() {
     fi
 }
 
+function ensure_uploads_owner() {
+    local root="/var/opt/gitlab/gitlab-rails/uploads"
+    [ -d "$root" ] || return 0
+    mkdir -p "$root/-/system/tmp/work" "$root/tmp" 2>/dev/null || true
+    echo "Ensuring uploads ownership is git:git..."
+    chown -R git:git "$root"
+}
+
 trap "sigterm_handler; exit" TERM
 
 source /RELEASE
@@ -95,6 +103,7 @@ sleep 3s
 # Run unclean start detection & cleanup
 detect_unclean_start
 ensure_git_data_owner
+ensure_uploads_owner
 
 # Legacy block to be removed on 17.0. See: https://gitlab.com/gitlab-org/omnibus-gitlab/-/merge_requests/7035
 # It re-adds support for rsa key types which was removed on 16.0 without going
@@ -233,6 +242,9 @@ gitlab-ctl stop nginx 2>/dev/null || true
 # Ensure Puma socket directory exists
 mkdir -p /var/opt/gitlab/gitlab-rails/sockets
 chown git:gitlab-www /var/opt/gitlab/gitlab-rails/sockets
+
+# reconfigure may recreate uploads/- as root; Puma (git) must own the cache dirs
+ensure_uploads_owner
 
 echo 'Starting Rust Workhorse...'
 exec /opt/gitlab/embedded/bin/gitlab-workhorse     --listen-addr "${WORKHORSE_LISTEN_ADDR:-0.0.0.0:80}"     --secret-path /opt/gitlab/embedded/service/gitlab-rails/.gitlab_workhorse_secret     --document-root /opt/gitlab/embedded/service/gitlab-rails/public     --auth-socket /var/opt/gitlab/gitlab-rails/sockets/gitlab.socket     --log-format json
