@@ -92,34 +92,40 @@ fn is_non_file_suffix(file_path: &str) -> bool {
     trimmed.ends_with("/raw") || trimmed.ends_with("/blame") || trimmed.ends_with("/authorize")
 }
 
-pub async fn accelerate(state: &AppState, req: &Request<Body>) -> AccelResult {
-    let started = Instant::now();
-    match tokio::time::timeout(state.hotpath.timeout, accelerate_inner(state, req)).await {
-        Ok(AccelResult::Hit(resp)) => {
-            let _ = state.metrics.record_hotpath(
-                FILES_PATH_TEMPLATE,
-                "hit",
-                started.elapsed().as_secs_f64(),
-            );
-            AccelResult::Hit(resp)
-        }
-        Ok(other) => other,
-        Err(_) => {
-            let _ = state.metrics.record_hotpath(
-                FILES_PATH_TEMPLATE,
-                "error",
-                started.elapsed().as_secs_f64(),
-            );
-            AccelResult::Fallback {
-                reason: "timeout".to_string(),
-                error: true,
+pub fn accelerate<'a>(
+    state: &'a AppState,
+    req: &Request<Body>,
+) -> impl std::future::Future<Output = AccelResult> + Send + 'a {
+    let req = super::CapturedRequest::from_http(req);
+    async move {
+        let started = Instant::now();
+        match tokio::time::timeout(state.hotpath.timeout, accelerate_inner(state, &req)).await {
+            Ok(AccelResult::Hit(resp)) => {
+                let _ = state.metrics.record_hotpath(
+                    FILES_PATH_TEMPLATE,
+                    "hit",
+                    started.elapsed().as_secs_f64(),
+                );
+                AccelResult::Hit(resp)
+            }
+            Ok(other) => other,
+            Err(_) => {
+                let _ = state.metrics.record_hotpath(
+                    FILES_PATH_TEMPLATE,
+                    "error",
+                    started.elapsed().as_secs_f64(),
+                );
+                AccelResult::Fallback {
+                    reason: "timeout".to_string(),
+                    error: true,
+                }
             }
         }
     }
 }
 
-async fn accelerate_inner(state: &AppState, req: &Request<Body>) -> AccelResult {
-    let parsed = match parse_files_request(req.method(), req.uri().path(), req.uri().query()) {
+async fn accelerate_inner(state: &AppState, req: &super::CapturedRequest) -> AccelResult {
+    let parsed = match parse_files_request(&req.method, &req.path, req.query.as_deref()) {
         Ok(p) => p,
         Err(reason) => {
             return AccelResult::Fallback { reason, error: false };
@@ -127,7 +133,7 @@ async fn accelerate_inner(state: &AppState, req: &Request<Body>) -> AccelResult 
     };
 
     let cookie = req
-        .headers()
+        .headers
         .get(header::COOKIE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");

@@ -200,43 +200,49 @@ pub fn precheck(
     ProjectsPrecheck::Ready(parsed)
 }
 
-pub async fn accelerate(state: &AppState, req: &Request<Body>) -> AccelResult {
-    let started = Instant::now();
-    match tokio::time::timeout(state.hotpath.timeout, accelerate_inner(state, req)).await {
-        Ok(AccelResult::Hit(resp)) => {
-            let _ = state.metrics.record_hotpath(
-                PROJECTS_PATH_TEMPLATE,
-                "hit",
-                started.elapsed().as_secs_f64(),
-            );
-            AccelResult::Hit(resp)
-        }
-        Ok(other) => other,
-        Err(_) => {
-            let _ = state.metrics.record_hotpath(
-                PROJECTS_PATH_TEMPLATE,
-                "error",
-                started.elapsed().as_secs_f64(),
-            );
-            AccelResult::Fallback {
-                reason: "timeout".to_string(),
-                error: true,
+pub fn accelerate<'a>(
+    state: &'a AppState,
+    req: &Request<Body>,
+) -> impl std::future::Future<Output = AccelResult> + Send + 'a {
+    let req = super::CapturedRequest::from_http(req);
+    async move {
+        let started = Instant::now();
+        match tokio::time::timeout(state.hotpath.timeout, accelerate_inner(state, &req)).await {
+            Ok(AccelResult::Hit(resp)) => {
+                let _ = state.metrics.record_hotpath(
+                    PROJECTS_PATH_TEMPLATE,
+                    "hit",
+                    started.elapsed().as_secs_f64(),
+                );
+                AccelResult::Hit(resp)
+            }
+            Ok(other) => other,
+            Err(_) => {
+                let _ = state.metrics.record_hotpath(
+                    PROJECTS_PATH_TEMPLATE,
+                    "error",
+                    started.elapsed().as_secs_f64(),
+                );
+                AccelResult::Fallback {
+                    reason: "timeout".to_string(),
+                    error: true,
+                }
             }
         }
     }
 }
 
-async fn accelerate_inner(state: &AppState, req: &Request<Body>) -> AccelResult {
+async fn accelerate_inner(state: &AppState, req: &super::CapturedRequest) -> AccelResult {
     let cookie = req
-        .headers()
+        .headers
         .get(header::COOKIE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     let session_id = session::session_id_from_cookie_header(cookie);
     let query = match precheck(
-        req.method(),
-        req.uri().path(),
-        req.uri().query(),
+        &req.method,
+        &req.path,
+        req.query.as_deref(),
         session_id.as_deref(),
     ) {
         ProjectsPrecheck::Ready(q) => q,

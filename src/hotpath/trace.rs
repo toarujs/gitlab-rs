@@ -223,34 +223,40 @@ pub fn job_token_from_headers(headers: &HeaderMap, query: Option<&str>) -> Optio
     query_param(query, "job_token").filter(|s| !s.is_empty())
 }
 
-pub async fn accelerate(state: &AppState, req: &Request<Body>) -> AccelResult {
-    let started = Instant::now();
-    match tokio::time::timeout(state.hotpath.timeout, accelerate_inner(state, req)).await {
-        Ok(AccelResult::Hit(resp)) => {
-            let _ = state.metrics.record_hotpath(
-                TRACE_PATH_TEMPLATE,
-                "hit",
-                started.elapsed().as_secs_f64(),
-            );
-            AccelResult::Hit(resp)
-        }
-        Ok(other) => other,
-        Err(_) => {
-            let _ = state.metrics.record_hotpath(
-                TRACE_PATH_TEMPLATE,
-                "error",
-                started.elapsed().as_secs_f64(),
-            );
-            AccelResult::Fallback {
-                reason: "timeout".to_string(),
-                error: true,
+pub fn accelerate<'a>(
+    state: &'a AppState,
+    req: &Request<Body>,
+) -> impl std::future::Future<Output = AccelResult> + Send + 'a {
+    let req = super::CapturedRequest::from_http(req);
+    async move {
+        let started = Instant::now();
+        match tokio::time::timeout(state.hotpath.timeout, accelerate_inner(state, &req)).await {
+            Ok(AccelResult::Hit(resp)) => {
+                let _ = state.metrics.record_hotpath(
+                    TRACE_PATH_TEMPLATE,
+                    "hit",
+                    started.elapsed().as_secs_f64(),
+                );
+                AccelResult::Hit(resp)
+            }
+            Ok(other) => other,
+            Err(_) => {
+                let _ = state.metrics.record_hotpath(
+                    TRACE_PATH_TEMPLATE,
+                    "error",
+                    started.elapsed().as_secs_f64(),
+                );
+                AccelResult::Fallback {
+                    reason: "timeout".to_string(),
+                    error: true,
+                }
             }
         }
     }
 }
 
-async fn accelerate_inner(state: &AppState, req: &Request<Body>) -> AccelResult {
-    let parsed = match parse_trace_request(req.method(), req.uri().path(), req.uri().query()) {
+async fn accelerate_inner(state: &AppState, req: &super::CapturedRequest) -> AccelResult {
+    let parsed = match parse_trace_request(&req.method, &req.path, req.query.as_deref()) {
         Ok(p) => p,
         Err(reason) => {
             return AccelResult::Fallback {
@@ -260,9 +266,9 @@ async fn accelerate_inner(state: &AppState, req: &Request<Body>) -> AccelResult 
         }
     };
 
-    let job_token = job_token_from_headers(req.headers(), req.uri().query());
+    let job_token = job_token_from_headers(&req.headers, req.query.as_deref());
     let cookie = req
-        .headers()
+        .headers
         .get(header::COOKIE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
@@ -346,7 +352,7 @@ async fn accelerate_inner(state: &AppState, req: &Request<Body>) -> AccelResult 
     };
 
     let range_header = req
-        .headers()
+        .headers
         .get(header::RANGE)
         .and_then(|v| v.to_str().ok());
     match serve_trace_file(&path, range_header, parsed.offset, parsed.head_only, &job.status)

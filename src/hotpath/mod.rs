@@ -3,6 +3,11 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
+use axum::{
+    body::Body,
+    http::{HeaderMap, Method, Request},
+};
+
 pub mod acl;
 pub mod files;
 pub mod session;
@@ -12,6 +17,28 @@ pub mod projects;
 pub const FILES_PATH_TEMPLATE: &str = "/api/v4/projects/:id/repository/files/*";
 pub const TRACE_PATH_TEMPLATE: &str = "/api/v4/projects/:id/jobs/:id/trace";
 pub const PROJECTS_PATH_TEMPLATE: &str = "/api/v4/projects";
+
+/// Send-safe copy of the HTTP bits hotpath accelerate needs.
+/// `Request<Body>` is not Sync (`Body` is `dyn HttpBody + Send`), so `&Request<Body>`
+/// cannot be captured across `.await` in an axum Handler.
+#[derive(Debug, Clone)]
+pub struct CapturedRequest {
+    pub method: Method,
+    pub path: String,
+    pub query: Option<String>,
+    pub headers: HeaderMap,
+}
+
+impl CapturedRequest {
+    pub fn from_http(req: &Request<Body>) -> Self {
+        Self {
+            method: req.method().clone(),
+            path: req.uri().path().to_string(),
+            query: req.uri().query().map(str::to_string),
+            headers: req.headers().clone(),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct HotPathState {
@@ -245,5 +272,17 @@ mod tests {
         w.push(Instant::now(), 20);
         assert_eq!(w.len(), 1);
         assert_eq!(w.percentile(50.0), Some(20));
+    }
+
+    #[test]
+    fn captured_request_copies_path_and_query() {
+        let req = Request::builder()
+            .uri("/api/v4/projects?page=2")
+            .body(Body::empty())
+            .unwrap();
+        let captured = CapturedRequest::from_http(&req);
+        assert_eq!(captured.path, "/api/v4/projects");
+        assert_eq!(captured.query.as_deref(), Some("page=2"));
+        assert_eq!(captured.method, Method::GET);
     }
 }
