@@ -198,10 +198,18 @@ pub async fn git_blob_inject(
     })?;
 
     // Prefer Gitaly
-    if let (Some(server), Some(repository)) = (&params.gitaly_server, &params.gitaly_repository) {
-        let (mut client, repo) = connect_gitaly(server, repository).await?;
-        let oid = params.blob_id.as_deref().unwrap_or_default();
-        let data = client.get_blob(&repo, oid, 0).await.map_err(|e| {
+    if let Some(server) = &params.gitaly_server {
+        let repository = match blob_repository(&params) {
+            Some(repo) => repo,
+            None => {
+                tracing::error!("git-blob missing repository in GitalyRepository/GetBlobRequest");
+                return Err(StatusCode::BAD_REQUEST);
+            }
+        };
+        let (mut client, repo) = connect_gitaly(server, &repository).await?;
+        let oid = blob_oid(&params);
+        let limit = blob_limit(&params);
+        let data = client.get_blob(&repo, oid, limit).await.map_err(|e| {
             tracing::error!("Gitaly get_blob failed: {}", e);
             StatusCode::BAD_GATEWAY
         })?;
@@ -217,7 +225,7 @@ pub async fn git_blob_inject(
         tracing::error!("Failed to open git repo for blob: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    let blob_id_str = params.blob_id.as_deref().unwrap_or("");
+    let blob_id_str = blob_oid(&params);
     let blob_id = gix::hash::ObjectId::from_hex(blob_id_str.as_bytes()).map_err(|e| {
         tracing::error!("Invalid blob id: {}", e);
         StatusCode::BAD_REQUEST
@@ -231,6 +239,60 @@ pub async fn git_blob_inject(
     response_headers.insert("content-type", "application/octet-stream".parse().unwrap());
     response_headers.insert("content-length", data.len().to_string().parse().unwrap());
     Ok((StatusCode::OK, response_headers, data).into_response())
+}
+
+fn blob_oid(params: &GitBlobParams) -> &str {
+    json_str(&params.get_blob_request, "oid")
+        .or(json_str(&params.get_blob_request, "Oid"))
+        .or(params.blob_id.as_deref())
+        .unwrap_or("")
+}
+
+fn blob_limit(params: &GitBlobParams) -> i64 {
+    json_i64(&params.get_blob_request, "limit")
+        .or_else(|| json_i64(&params.get_blob_request, "Limit"))
+        .unwrap_or(-1)
+}
+
+fn blob_repository(params: &GitBlobParams) -> Option<GitalyRepositoryParams> {
+    if let Some(repo) = &params.gitaly_repository {
+        return Some(GitalyRepositoryParams {
+            storage_name: repo.storage_name.clone(),
+            relative_path: repo.relative_path.clone(),
+            gl_project_path: repo.gl_project_path.clone(),
+            gl_repository: repo.gl_repository.clone(),
+        });
+    }
+    let repo = params.get_blob_request.as_ref()?.get("repository")
+        .or_else(|| params.get_blob_request.as_ref()?.get("Repository"))?;
+    Some(GitalyRepositoryParams {
+        storage_name: json_value_str(repo, "storageName")
+            .or_else(|| json_value_str(repo, "storage_name"))
+            .or_else(|| json_value_str(repo, "StorageName"))
+            .map(ToString::to_string),
+        relative_path: json_value_str(repo, "relativePath")
+            .or_else(|| json_value_str(repo, "relative_path"))
+            .or_else(|| json_value_str(repo, "RelativePath"))
+            .map(ToString::to_string),
+        gl_project_path: json_value_str(repo, "glProjectPath")
+            .or_else(|| json_value_str(repo, "gl_project_path"))
+            .map(ToString::to_string),
+        gl_repository: json_value_str(repo, "glRepository")
+            .or_else(|| json_value_str(repo, "gl_repository"))
+            .map(ToString::to_string),
+    })
+}
+
+fn json_str<'a>(value: &'a Option<serde_json::Value>, key: &str) -> Option<&'a str> {
+    value.as_ref()?.get(key)?.as_str()
+}
+
+fn json_i64(value: &Option<serde_json::Value>, key: &str) -> Option<i64> {
+    value.as_ref()?.get(key)?.as_i64()
+}
+
+fn json_value_str<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    value.get(key)?.as_str()
 }
 
 // ── Diff ──
@@ -477,6 +539,25 @@ mod tests {
         let params: GitBlobParams = serde_json::from_str(json).unwrap();
         assert!(params.gitaly_server.is_some());
         assert_eq!(params.blob_id.unwrap(), "abc123");
+    }
+
+    #[test]
+    fn test_parse_official_get_blob_request() {
+        let json = r#"{
+            "GitalyServer": {"Address": "unix:/var/opt/gitlab/gitaly/gitaly.socket", "Token": "secret"},
+            "GetBlobRequest": {
+                "repository": {"storage_name": "default", "relative_path": "@hashed/ab/cd/abcd.git"},
+                "oid": "deadbeef",
+                "limit": -1
+            }
+        }"#;
+        let params: GitBlobParams = serde_json::from_str(json).unwrap();
+        assert!(params.gitaly_server.is_some());
+        assert_eq!(blob_oid(&params), "deadbeef");
+        assert_eq!(blob_limit(&params), -1);
+        let repo = blob_repository(&params).unwrap();
+        assert_eq!(repo.storage_name.as_deref(), Some("default"));
+        assert_eq!(repo.relative_path.as_deref(), Some("@hashed/ab/cd/abcd.git"));
     }
 
     #[test]

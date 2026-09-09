@@ -611,11 +611,16 @@ async fn main() -> anyhow::Result<()> {
         // Repository API
         .route(
             "/api/v4/projects/:project_id/repository/commits",
-            post(routes::uploads::handle_repository_commits),
+            get(proxy::proxy_handler).post(routes::uploads::handle_repository_commits),
         )
         .route(
             "/api/v4/projects/:project_id/repository/files/*path",
-            post(routes::uploads::handle_repository_files).put(routes::uploads::handle_repository_files),
+            get(routes::uploads::handle_repository_files)
+                .head(routes::uploads::handle_repository_files)
+                .post(routes::uploads::handle_repository_files)
+                .put(routes::uploads::handle_repository_files)
+                .patch(routes::uploads::handle_repository_files)
+                .delete(routes::uploads::handle_repository_files),
         )
         // Wiki attachments
         .route(
