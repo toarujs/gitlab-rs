@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package gitaly;
+
+option go_package = "gitlab.com/gitlab-org/gitaly/v16/proto/go/gitalypb";
+
+import "gitaly/smarthttp.proto";
+
+message TreeEntryRequest {
+  Repository repository = 1;
+  bytes revision = 2;
+  bytes path = 3;
+  int64 limit = 4;
+  int64 max_size = 5;
+}
+
+message TreeEntryResponse {
+  enum ObjectType {
+    COMMIT = 0;
+    BLOB = 1;
+    TREE = 2;
+    TAG = 3;
+  }
+  ObjectType type = 1;
+  string oid = 2;
+  int64 size = 3;
+  int32 mode = 4;
+  bytes data = 5;
+}
+
+message GitCommit {
+  string id = 1;
+}
+
+message FindCommitRequest {
+  Repository repository = 1;
+  bytes revision = 2;
+  bool trailers = 3;
+}
+
+message FindCommitResponse {
+  GitCommit commit = 1;
+}
+
+message LastCommitForPathRequest {
+  Repository repository = 1;
+  bytes revision = 2;
+  bytes path = 3;
+  bool literal_pathspec = 4;
+}
+
+message LastCommitForPathResponse {
+  GitCommit commit = 1;
+}
+
+service CommitService {
+  rpc TreeEntry(TreeEntryRequest) returns (stream TreeEntryResponse);
+  rpc FindCommit(FindCommitRequest) returns (FindCommitResponse);
+  rpc LastCommitForPath(LastCommitForPathRequest) returns (LastCommitForPathResponse);
+}

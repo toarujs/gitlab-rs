@@ -12,16 +12,14 @@ pub mod gitaly {
 
 use gitaly::{
     blob_service_client::BlobServiceClient,
+    commit_service_client::CommitServiceClient,
     diff_service_client::DiffServiceClient,
     repository_service_client::RepositoryServiceClient,
     smart_http_service_client::SmartHttpServiceClient,
-    GetArchiveRequest, GetBlobRequest, GetSnapshotRequest,
-    InfoRefsRequest,
-    PostUploadPackRequest,
-    PostReceivePackRequest,
-    PostUploadPackWithSidechannelRequest,
-    RawDiffRequest, RawPatchRequest,
-    Repository,
+    FindCommitRequest, GetArchiveRequest, GetBlobRequest, GetSnapshotRequest,
+    InfoRefsRequest, LastCommitForPathRequest,
+    PostReceivePackRequest, PostUploadPackRequest, PostUploadPackWithSidechannelRequest,
+    RawDiffRequest, RawPatchRequest, Repository, TreeEntryRequest,
 };
 use tonic::transport::Channel;
 
@@ -52,10 +50,27 @@ impl RepoInfo {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct BlobMeta {
+    pub oid: String,
+    pub size: i64,
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TreeEntryBlob {
+    pub object_type: i32,
+    pub oid: String,
+    pub size: i64,
+    pub mode: i32,
+    pub data: Vec<u8>,
+}
+
 pub struct GitalyClient {
     smart_http: SmartHttpServiceClient<Channel>,
     repository: RepositoryServiceClient<Channel>,
     blob: BlobServiceClient<Channel>,
+    commit: CommitServiceClient<Channel>,
     diff: DiffServiceClient<Channel>,
     server: GitalyServer,
 }
@@ -68,6 +83,7 @@ impl GitalyClient {
             smart_http: SmartHttpServiceClient::new(channel.clone()),
             repository: RepositoryServiceClient::new(channel.clone()),
             blob: BlobServiceClient::new(channel.clone()),
+            commit: CommitServiceClient::new(channel.clone()),
             diff: DiffServiceClient::new(channel),
             server: server.clone(),
         })
@@ -342,6 +358,113 @@ impl GitalyClient {
             data.extend_from_slice(&chunk.data);
         }
         Ok(data)
+    }
+
+    pub async fn get_blob_with_meta(
+        &mut self,
+        repo: &RepoInfo,
+        oid: &str,
+        limit: i64,
+    ) -> Result<BlobMeta, tonic::Status> {
+        let mut req = tonic::Request::new(GetBlobRequest {
+            repository: Some(self.build_repo(repo)),
+            oid: oid.to_string(),
+            limit,
+        });
+        req.metadata_mut().insert("authorization", self.auth_token());
+        let mut stream = self.blob.get_blob(req).await?.into_inner();
+        let mut meta = BlobMeta {
+            oid: String::new(),
+            size: 0,
+            data: Vec::new(),
+        };
+        while let Some(chunk) = stream.message().await? {
+            if meta.size == 0 && chunk.size != 0 {
+                meta.size = chunk.size;
+            }
+            if meta.oid.is_empty() && !chunk.oid.is_empty() {
+                meta.oid = chunk.oid;
+            }
+            meta.data.extend_from_slice(&chunk.data);
+        }
+        if meta.size == 0 {
+            meta.size = meta.data.len() as i64;
+        }
+        Ok(meta)
+    }
+
+    pub async fn tree_entry(
+        &mut self,
+        repo: &RepoInfo,
+        revision: &str,
+        path: &str,
+        max_size: i64,
+    ) -> Result<TreeEntryBlob, tonic::Status> {
+        let mut req = tonic::Request::new(TreeEntryRequest {
+            repository: Some(self.build_repo(repo)),
+            revision: revision.as_bytes().to_vec(),
+            path: path.as_bytes().to_vec(),
+            limit: 0,
+            max_size,
+        });
+        req.metadata_mut().insert("authorization", self.auth_token());
+        let mut stream = self.commit.tree_entry(req).await?.into_inner();
+        let mut entry = TreeEntryBlob {
+            object_type: 0,
+            oid: String::new(),
+            size: 0,
+            mode: 0,
+            data: Vec::new(),
+        };
+        while let Some(chunk) = stream.message().await? {
+            if !chunk.oid.is_empty() {
+                entry.oid = chunk.oid;
+            }
+            if chunk.size != 0 {
+                entry.size = chunk.size;
+            }
+            if chunk.mode != 0 {
+                entry.mode = chunk.mode;
+            }
+            let ty = chunk.r#type as i32;
+            if ty != 0 {
+                entry.object_type = ty;
+            }
+            entry.data.extend_from_slice(&chunk.data);
+        }
+        Ok(entry)
+    }
+
+    pub async fn find_commit_id(
+        &mut self,
+        repo: &RepoInfo,
+        revision: &str,
+    ) -> Result<Option<String>, tonic::Status> {
+        let mut req = tonic::Request::new(FindCommitRequest {
+            repository: Some(self.build_repo(repo)),
+            revision: revision.as_bytes().to_vec(),
+            trailers: false,
+        });
+        req.metadata_mut().insert("authorization", self.auth_token());
+        let resp = self.commit.find_commit(req).await?.into_inner();
+        Ok(resp.commit.map(|c| c.id).filter(|s| !s.is_empty()))
+    }
+
+    pub async fn last_commit_id_for_path(
+        &mut self,
+        repo: &RepoInfo,
+        revision: &str,
+        path: &str,
+    ) -> Result<Option<String>, tonic::Status> {
+        let mut req = tonic::Request::new(LastCommitForPathRequest {
+            repository: Some(self.build_repo(repo)),
+            revision: revision.as_bytes().to_vec(),
+            path: path.as_bytes().to_vec(),
+            literal_pathspec: true,
+        });
+        req.metadata_mut().insert("authorization", self.auth_token());
+        let resp = self.commit.last_commit_for_path(req).await?.into_inner();
+        Ok(resp.commit.map(|c| c.id).filter(|s| !s.is_empty()))
     }
 
     pub async fn raw_diff(

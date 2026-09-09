@@ -480,6 +480,7 @@ async fn main() -> anyhow::Result<()> {
                 .pool_max_idle_per_host(10)
                 .build(hyperlocal::UnixConnector)
         ),
+        hotpath: hotpath::HotPathState::from_env(),
     };
 
     let app = Router::new()

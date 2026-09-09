@@ -7,6 +7,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "proto/gitaly/repository.proto",
                 "proto/gitaly/blob.proto",
                 "proto/gitaly/diff.proto",
+                "proto/gitaly/commit.proto",
             ],
             &["proto"],
         )?;

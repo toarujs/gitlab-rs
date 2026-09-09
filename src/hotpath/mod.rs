@@ -3,6 +3,20 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
+pub mod acl;
+pub mod files;
+pub mod session;
+
+pub const FILES_PATH_TEMPLATE: &str = "/api/v4/projects/:id/repository/files/*";
+
+#[derive(Debug, Clone)]
+pub struct HotPathState {
+    pub timeout: Duration,
+    pub max_file_bytes: u64,
+    pub database_url: Option<String>,
+    pub redis_url: Option<String>,
+}
+
 pub const HOT_WINDOW: Duration = Duration::from_secs(300);
 pub const HOT_THRESHOLD: usize = 50;
 

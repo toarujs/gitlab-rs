@@ -3,7 +3,7 @@
 use axum::{
     body::Body,
     extract::{Request, State},
-    http::{StatusCode, header},
+    http::{header, Method, StatusCode},
     response::{IntoResponse, Response},
 };
 use crate::proxy::{self, ProxyState};
@@ -130,6 +130,20 @@ pub async fn handle_repository_files(
     State(state): State<crate::state::AppState>,
     req: Request<Body>,
 ) -> Response {
+    let method = req.method().clone();
+    if method == Method::GET || method == Method::HEAD {
+        match crate::hotpath::files::accelerate(&state, &req).await {
+            crate::hotpath::files::AccelResult::Hit(resp) => return resp,
+            crate::hotpath::files::AccelResult::Fallback { reason, error } => {
+                tracing::warn!(
+                    path_template = %crate::hotpath::FILES_PATH_TEMPLATE,
+                    reason = %reason,
+                    error = error,
+                    "Files GET accelerate fallback to Puma"
+                );
+            }
+        }
+    }
     match proxy::proxy_handler(State(state), req).await {
         Ok(resp) => resp,
         Err(status) => (status, "").into_response(),

@@ -67,6 +67,15 @@ impl RedisClient {
             .map_err(|e| format!("redis get error: {}", e))
     }
 
+    pub async fn get_bytes(&self, key: &str) -> Result<Option<Vec<u8>>, String> {
+        let guard = self.manager.read().await;
+        let manager = guard.as_ref().ok_or("redis not connected")?;
+        let mut conn = manager.clone();
+        conn.get(key)
+            .await
+            .map_err(|e| format!("redis get error: {}", e))
+    }
+
     pub async fn del(&self, key: &str) -> Result<(), String> {
         let guard = self.manager.read().await;
         let manager = guard

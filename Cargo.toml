@@ -71,6 +71,9 @@ regex = "1"
 # Redis
 redis = { version = "0.25", features = ["tokio-comp", "connection-manager"] }
 
+# PostgreSQL (hotpath ACL)
+tokio-postgres = "0.7"
+
 # WebSocket
 tokio-tungstenite = "0.24"
 futures-util = "0.3"

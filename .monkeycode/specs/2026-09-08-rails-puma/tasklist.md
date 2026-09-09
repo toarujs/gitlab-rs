@@ -8,7 +8,7 @@
   - 对应 R1
   - [x] 1.1 为 path_template 与窗口分位数写单元测试
 
-- [ ] 2. Files GET 加速
+- [x] 2. Files GET 加速
   - 白名单 `GET /api/v4/projects/:id/repository/files/*`
   - session 解码失败则回源 Puma
   - 用 `project_authorizations` 判断可读；Guest 读 private 返回 404
@@ -16,7 +16,7 @@
   - 超过内存上限则回源或流式发送
   - 对应 R3、R5、R6、R7
 
-- [ ] 3. 检查点 - 确保所有测试通过
+- [x] 3. 检查点 - 确保所有测试通过
   - 确保所有测试通过,如有疑问请询问用户
 
 - [ ] 4. CI job log / trace 加速

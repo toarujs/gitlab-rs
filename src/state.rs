@@ -32,6 +32,7 @@ pub struct AppState {
     pub secret: secret::Secret,
     pub webp_converter: Arc<imageresizer::WebPConverter>,
     pub unix_client: Arc<proxy::UnixSocketClient>,
+    pub hotpath: crate::hotpath::HotPathState,
 }
 
 impl std::fmt::Debug for AppState {
@@ -49,6 +50,7 @@ impl std::fmt::Debug for AppState {
             .field("injecters", &"<InjecterRegistry>")
             .field("secret", &"<secret>")
             .field("unix_client", &"<UnixSocketClient>")
+            .field("hotpath", &self.hotpath)
             .finish()
     }
 }
