@@ -8,6 +8,7 @@ pub mod import;
 pub mod observability;
 pub mod oauth;
 pub mod packages;
+pub mod projects;
 pub mod ssh_git;
 pub mod terraform;
 pub mod uploads;

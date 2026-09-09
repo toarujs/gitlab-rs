@@ -7,6 +7,7 @@ pub const VISIBILITY_INTERNAL: i32 = 10;
 pub const VISIBILITY_PUBLIC: i32 = 20;
 pub const ACCESS_GUEST: i32 = 10;
 pub const ACCESS_REPORTER: i32 = 20;
+pub const ACCESS_OWNER: i32 = 50;
 
 /// Repository feature disabled. Matches `ProjectFeature::DISABLED`.
 pub const FEATURE_DISABLED: i32 = 0;
@@ -50,6 +51,27 @@ pub fn can_read_build(
         return member;
     }
     true
+}
+
+/// Whether a logged-in user can see a project in `GET /api/v4/projects`.
+/// Guest+ members see the project at any visibility.
+/// Non-members see public; non-external users also see internal.
+/// Private is never shown without membership.
+pub fn can_see_project(
+    visibility_level: i32,
+    access_level: Option<i32>,
+    external_user: bool,
+) -> bool {
+    if access_level.unwrap_or(0) >= ACCESS_GUEST {
+        return true;
+    }
+    if visibility_level >= VISIBILITY_PUBLIC {
+        return true;
+    }
+    if visibility_level >= VISIBILITY_INTERNAL && !external_user {
+        return true;
+    }
+    false
 }
 
 pub fn repository_disabled(repository_access_level: Option<i32>) -> bool {
@@ -121,6 +143,32 @@ mod tests {
             true,
             Some(ACCESS_REPORTER)
         ));
+    }
+
+    #[test]
+    fn list_hides_private_from_non_members() {
+        assert!(!can_see_project(VISIBILITY_PRIVATE, None, false));
+        assert!(!can_see_project(VISIBILITY_PRIVATE, Some(0), false));
+        assert!(!can_see_project(VISIBILITY_PRIVATE, None, true));
+    }
+
+    #[test]
+    fn list_shows_private_to_guest_members() {
+        assert!(can_see_project(
+            VISIBILITY_PRIVATE,
+            Some(ACCESS_GUEST),
+            false
+        ));
+        assert!(can_see_project(VISIBILITY_PRIVATE, Some(ACCESS_OWNER), true));
+    }
+
+    #[test]
+    fn list_internal_and_public_for_logged_in() {
+        assert!(can_see_project(VISIBILITY_INTERNAL, None, false));
+        assert!(!can_see_project(VISIBILITY_INTERNAL, None, true));
+        assert!(can_see_project(VISIBILITY_INTERNAL, Some(ACCESS_GUEST), true));
+        assert!(can_see_project(VISIBILITY_PUBLIC, None, true));
+        assert!(can_see_project(VISIBILITY_PUBLIC, None, false));
     }
 
     #[test]

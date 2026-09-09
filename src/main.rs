@@ -654,7 +654,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/api/v4/projects",
-            get(proxy::proxy_handler)
+            get(routes::projects::handle_projects_index)
                 .post(proxy::proxy_handler)
                 .put(proxy::proxy_handler)
                 .delete(proxy::proxy_handler),

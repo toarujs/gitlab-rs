@@ -24,10 +24,10 @@
   - 本地 artifacts 存在则直接读，支持 Range；不在本地则回源
   - 对应 R4、R6
 
-- [ ] 5. `GET /api/v4/projects` 加速
+ - [x] 5. `GET /api/v4/projects` 加速
   - 读 `project_authorizations` + `projects`，可见性与 Rails 一致
   - PG 失败回源
   - 对应 R2、R6
 
-- [ ] 6. 检查点 - 确保所有测试通过
+- [x] 6. 检查点 - 确保所有测试通过
   - 确保所有测试通过,如有疑问请询问用户
