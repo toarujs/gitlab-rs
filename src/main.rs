@@ -37,6 +37,7 @@ mod gob;
 mod headers;
 mod health;
 mod html_injection;
+mod hotpath;
 mod imageresizer;
 mod loadshedding;
 mod logging;

@@ -1,8 +1,10 @@
 use axum::{Json, extract::State, http::StatusCode};
-use prometheus::{Gauge, Histogram, IntCounter, Registry, TextEncoder};
+use prometheus::{Gauge, Histogram, HistogramVec, IntCounter, IntCounterVec, Registry, TextEncoder};
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
 
 use super::state::AppState;
+use super::hotpath::{HotPathWindows, HotWindowSnapshot};
 
 #[derive(Debug, Clone)]
 pub struct MetricsState {
@@ -13,6 +15,9 @@ pub struct MetricsState {
     pub upload_bytes_total: IntCounter,
     pub download_bytes_total: IntCounter,
     pub git_operations_total: IntCounter,
+    pub hotpath_duration_seconds: HistogramVec,
+    pub hotpath_result_total: IntCounterVec,
+    hotpath_windows: Arc<Mutex<HotPathWindows>>,
 }
 
 impl MetricsState {
@@ -46,6 +51,25 @@ impl MetricsState {
         let git_operations_total =
             IntCounter::new("git_operations_total", "Total number of Git operations").unwrap();
 
+        let hotpath_duration_seconds = HistogramVec::new(
+            prometheus::HistogramOpts::new(
+                "gitlab_rs_hotpath_duration_seconds",
+                "Puma wait time for hot path templates (observed after 50 hits / 5 min)",
+            )
+            .buckets(vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
+            &["path", "result"],
+        )
+        .unwrap();
+
+        let hotpath_result_total = IntCounterVec::new(
+            prometheus::Opts::new(
+                "gitlab_rs_hotpath_result_total",
+                "Hot path results: hit, fallback, error",
+            ),
+            &["result"],
+        )
+        .unwrap();
+
         registry
             .register(Box::new(http_requests_total.clone()))
             .unwrap();
@@ -64,6 +88,12 @@ impl MetricsState {
         registry
             .register(Box::new(git_operations_total.clone()))
             .unwrap();
+        registry
+            .register(Box::new(hotpath_duration_seconds.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(hotpath_result_total.clone()))
+            .unwrap();
 
         Self {
             registry,
@@ -73,6 +103,9 @@ impl MetricsState {
             upload_bytes_total,
             download_bytes_total,
             git_operations_total,
+            hotpath_duration_seconds,
+            hotpath_result_total,
+            hotpath_windows: Arc::new(Mutex::new(HotPathWindows::default())),
         }
     }
 
@@ -96,6 +129,37 @@ impl MetricsState {
 
     pub fn record_git_operation(&self) {
         self.git_operations_total.inc();
+    }
+
+    /// Record a Puma-proxied request. Histogram is only observed for hot templates.
+    pub fn record_hotpath(
+        &self,
+        path_template: &str,
+        result: &str,
+        puma_secs: f64,
+    ) -> HotWindowSnapshot {
+        self.hotpath_result_total
+            .with_label_values(&[result])
+            .inc();
+
+        let puma_ms = (puma_secs * 1000.0).round() as u64;
+        let snap = match self.hotpath_windows.lock() {
+            Ok(mut windows) => windows.record(path_template, puma_ms),
+            Err(_) => HotWindowSnapshot {
+                count: 0,
+                is_hot: false,
+                p50_ms: None,
+                p95_ms: None,
+                log_aggregate: false,
+            },
+        };
+
+        if snap.is_hot {
+            self.hotpath_duration_seconds
+                .with_label_values(&[path_template, result])
+                .observe(puma_secs);
+        }
+        snap
     }
 }
 

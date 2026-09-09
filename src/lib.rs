@@ -18,6 +18,7 @@ pub mod gob;
 pub mod headers;
 pub mod health;
 pub mod html_injection;
+pub mod hotpath;
 pub mod imageresizer;
 pub mod loadshedding;
 pub mod logging;

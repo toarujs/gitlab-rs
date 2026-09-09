@@ -400,6 +400,14 @@ pub async fn proxy_request_streaming(
     let metrics = state.metrics.clone();
     let method_str = method.as_str().to_string();
     let path_str = uri.path().to_string();
+    let used_gitaly = is_git_url(&path_str)
+        && state.git.gitaly_address.is_some()
+        && state.git.gitaly_token.is_some();
+    let used_git_backend = is_git_url(&path_str)
+        && !used_gitaly
+        && state.proxy.git_backend_url.is_some();
+    let via_puma = !used_gitaly && !used_git_backend;
+    let backend_started = std::time::Instant::now();
     // Check for git URLs FIRST — route to Gitaly or Go sidecar
     let result = if is_git_url(&path_str) {
         if let (Some(gitaly_addr), Some(gitaly_token)) = (&state.git.gitaly_address, &state.git.gitaly_token) {
@@ -428,6 +436,29 @@ pub async fn proxy_request_streaming(
         Ok(resp) => resp.status().as_u16(),
         Err(s) => s.as_u16(),
     };
+    let puma_ms = if via_puma {
+        backend_started.elapsed().as_millis() as u64
+    } else {
+        0
+    };
+    let template = crate::hotpath::path_template(&path_str);
+    if via_puma {
+        let result_label = if response_status >= 500 {
+            "error"
+        } else {
+            "fallback"
+        };
+        let snap = metrics.record_hotpath(&template, result_label, puma_ms as f64 / 1000.0);
+        if snap.log_aggregate {
+            tracing::info!(
+                path_template = %template,
+                count = snap.count,
+                p50_ms = snap.p50_ms,
+                p95_ms = snap.p95_ms,
+                "Hot path aggregated"
+            );
+        }
+    }
 
     if let Ok(resp) = result.as_ref() {
         let resp_status = resp.status().as_u16();
@@ -449,8 +480,10 @@ pub async fn proxy_request_streaming(
         tracing::info!(
             method = %method_str,
             path = %path_str,
+            path_template = %template,
             status = response_status,
             duration_ms = duration,
+            puma_ms = puma_ms,
             "Proxy request completed"
         );
     }
