@@ -611,11 +611,16 @@ async fn main() -> anyhow::Result<()> {
         // Repository API
         .route(
             "/api/v4/projects/:project_id/repository/commits",
-            post(routes::uploads::handle_repository_commits),
+            get(proxy::proxy_handler).post(routes::uploads::handle_repository_commits),
         )
         .route(
             "/api/v4/projects/:project_id/repository/files/*path",
-            post(routes::uploads::handle_repository_files).put(routes::uploads::handle_repository_files),
+            get(routes::uploads::handle_repository_files)
+                .head(routes::uploads::handle_repository_files)
+                .post(routes::uploads::handle_repository_files)
+                .put(routes::uploads::handle_repository_files)
+                .patch(routes::uploads::handle_repository_files)
+                .delete(routes::uploads::handle_repository_files),
         )
         // Wiki attachments
         .route(
@@ -743,8 +748,17 @@ async fn main() -> anyhow::Result<()> {
         // WebSocket routes
         .route("/-/cable", get(proxy::proxy_websocket))
         .route("/-/cable/*path", get(proxy::proxy_websocket))
-        // Serve static files from public/-/ (emojis, pwa-icons, etc.)
-        .route("/-/*path", get(serve_public_or_proxy))
+        // GET: static files under public/-/ (emojis, pwa-icons), else Rails.
+        // POST/PUT/PATCH/DELETE must also match this path or Axum returns 405
+        // (e.g. /-/user_settings/profile updates).
+        .route(
+            "/-/*path",
+            get(serve_public_or_proxy)
+                .post(proxy::proxy_handler)
+                .put(proxy::proxy_handler)
+                .patch(proxy::proxy_handler)
+                .delete(proxy::proxy_handler),
+        )
         // Assets (static files with long cache)
         .route("/assets/*path", get(staticpages::serve_static_file))
         // Generic uploads (file upload endpoints)
