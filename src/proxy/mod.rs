@@ -1258,7 +1258,12 @@ async fn serve_git_from_gitaly(
             .post_upload_pack_with_sidechannel(&repo, pack_body)
             .await
         {
-            Ok(pack_data) => git_protocol_response(path, query, Bytes::from(pack_data)),
+            Ok(pack_stream) => {
+                let mut headers = HeaderMap::new();
+                headers.insert("content-type", git_content_type(path, query).parse().unwrap());
+                headers.insert("cache-control", "no-cache".parse().unwrap());
+                Ok((StatusCode::OK, headers, Body::from_stream(pack_stream)).into_response())
+            }
             Err(e) => {
                 tracing::error!("Gitaly post_upload_pack failed: {}", e);
                 Err(StatusCode::BAD_GATEWAY)
@@ -1461,15 +1466,14 @@ async fn proxy_via_gitaly(
         tracing::info!("git-upload-pack: body_bytes len={}", body_bytes.len());
 
         match client.post_upload_pack_with_sidechannel(&repo, body_bytes).await {
-            Ok(pack_data) => {
-                tracing::info!("PostUploadPackWithSidechannel returned {} bytes", pack_data.len());
+            Ok(pack_stream) => {
                 let mut response_headers = HeaderMap::new();
                 response_headers.insert(
                     "content-type",
                     "application/x-git-upload-pack-result".parse().unwrap(),
                 );
                 response_headers.insert("cache-control", "no-cache".parse().unwrap());
-                Ok((StatusCode::OK, response_headers, pack_data).into_response())
+                Ok((StatusCode::OK, response_headers, Body::from_stream(pack_stream)).into_response())
             }
             Err(e) => {
                 tracing::error!("Gitaly post_upload_pack failed: {}", e);

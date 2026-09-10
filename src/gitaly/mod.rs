@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 
 pub mod gitaly {
     tonic::include_proto!("gitaly");
@@ -22,6 +22,8 @@ use gitaly::{
     RawDiffRequest, RawPatchRequest, Repository, TreeEntryRequest,
 };
 use tonic::transport::Channel;
+use bytes::Bytes;
+use tokio_stream::wrappers::ReceiverStream;
 
 #[derive(Debug, Clone)]
 pub struct GitalyServer {
@@ -192,7 +194,7 @@ impl GitalyClient {
         &mut self,
         repo: &RepoInfo,
         request_body: Vec<u8>,
-    ) -> Result<Vec<u8>, tonic::Status> {
+    ) -> Result<ReceiverStream<Result<Bytes, io::Error>>, tonic::Status> {
         // First, establish yamux session for sidechannel data transfer
         tracing::info!("yamux: connecting to Gitaly at {}", self.server.address);
         let session = sidechannel::YamuxSession::connect(&self.server.address).await
@@ -249,20 +251,37 @@ impl GitalyClient {
         sidechannel.close_write().await
             .map_err(|e| tonic::Status::internal(format!("sidechannel close_write: {}", e)))?;
 
-        // Read pack data from sidechannel as raw data
-        // Gitaly writes raw bytes via ServerConn.Write()
-        let mut pack_data = Vec::new();
-        sidechannel.read_to_end(&mut pack_data).await
-            .map_err(|e| tonic::Status::internal(format!("sidechannel read: {}", e)))?;
-        tracing::info!("yamux: received {} bytes from sidechannel", pack_data.len());
+        let (tx, rx) = mpsc::channel::<Result<Bytes, io::Error>>(16);
+        tokio::spawn(async move {
+            let _session = session;
+            let mut buf = vec![0u8; 64 * 1024];
+            let mut total = 0usize;
+            loop {
+                match sidechannel.read(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        total += n;
+                        if tx.send(Ok(Bytes::copy_from_slice(&buf[..n]))).await.is_err() {
+                            tracing::warn!("yamux: client disconnected after {} bytes", total);
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("yamux: sidechannel read error: {}", e);
+                        let _ = tx.send(Err(e)).await;
+                        break;
+                    }
+                }
+            }
+            tracing::info!("yamux: received {} bytes from sidechannel", total);
+            match grpc_handle.await {
+                Ok(Ok(_)) => tracing::info!("yamux: gRPC call completed, pack_data={} bytes", total),
+                Ok(Err(e)) => tracing::error!("yamux: gRPC call failed: {}", e),
+                Err(e) => tracing::error!("yamux: gRPC task failed: {}", e),
+            }
+        });
 
-        // Wait for gRPC call to complete
-        let _grpc_result = grpc_handle.await
-            .map_err(|_| tonic::Status::internal("gRPC task failed"))??;
-        
-        tracing::info!("yamux: gRPC call completed, pack_data={} bytes", pack_data.len());
-
-        Ok(pack_data)
+        Ok(ReceiverStream::new(rx))
     }
 
     pub async fn post_receive_pack(

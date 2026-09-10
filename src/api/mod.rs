@@ -24,6 +24,14 @@ pub const RESPONSE_CONTENT_TYPE: &str = "application/vnd.gitlab-workhorse+json";
 
 pub const FAILURE_RESPONSE_LIMIT: usize = 32768;
 
+fn null_to_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
+
 #[derive(Clone)]
 pub struct Api {
     pub url: Arc<Url>,
@@ -33,7 +41,9 @@ pub struct Api {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitalyServer {
+    #[serde(default, deserialize_with = "null_to_default")]
     pub address: String,
+    #[serde(default, deserialize_with = "null_to_default")]
     pub token: String,
     #[serde(default)]
     pub call_metadata: HashMap<String, String>,
@@ -41,15 +51,17 @@ pub struct GitalyServer {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitalyRepository {
+    #[serde(default, deserialize_with = "null_to_default")]
     pub storage_name: String,
+    #[serde(default, deserialize_with = "null_to_default")]
     pub relative_path: String,
-    #[serde(rename = "git_object_directory", default)]
+    #[serde(rename = "git_object_directory", default, deserialize_with = "null_to_default")]
     pub git_object_directory: String,
     #[serde(rename = "git_alternate_object_directories", default)]
     pub git_alternate_object_directories: Vec<String>,
-    #[serde(rename = "gl_repository", default)]
+    #[serde(rename = "gl_repository", default, deserialize_with = "null_to_default")]
     pub gl_repository: String,
-    #[serde(rename = "gl_project_path", default)]
+    #[serde(rename = "gl_project_path", default, deserialize_with = "null_to_default")]
     pub gl_project_path: String,
 }
 
@@ -118,37 +130,37 @@ pub struct DuoWorkflow {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Response {
-    #[serde(rename = "GL_ID", default)]
+    #[serde(rename = "GL_ID", default, deserialize_with = "null_to_default")]
     pub gl_id: String,
-    #[serde(rename = "GL_USERNAME", default)]
+    #[serde(rename = "GL_USERNAME", default, deserialize_with = "null_to_default")]
     pub gl_username: String,
-    #[serde(rename = "GL_REPOSITORY", default)]
+    #[serde(rename = "GL_REPOSITORY", default, deserialize_with = "null_to_default")]
     pub gl_repository: String,
-    #[serde(rename = "GL_PROJECT_ID", default)]
+    #[serde(rename = "GL_PROJECT_ID", default, deserialize_with = "null_to_default")]
     pub gl_project_id: i64,
-    #[serde(rename = "GL_SCOPED_USER_ID", default)]
+    #[serde(rename = "GL_SCOPED_USER_ID", default, deserialize_with = "null_to_default")]
     pub gl_scoped_user_id: String,
-    #[serde(rename = "GL_BUILD_ID", default)]
+    #[serde(rename = "GL_BUILD_ID", default, deserialize_with = "null_to_default")]
     pub gl_build_id: String,
-    #[serde(rename = "ProjectID", default)]
+    #[serde(rename = "ProjectID", default, deserialize_with = "null_to_default")]
     pub project_id: i64,
-    #[serde(rename = "RootNamespaceID", default)]
+    #[serde(rename = "RootNamespaceID", default, deserialize_with = "null_to_default")]
     pub root_namespace_id: i64,
     #[serde(rename = "GitConfigOptions", default)]
     pub git_config_options: Vec<String>,
-    #[serde(rename = "StoreLFSPath", default)]
+    #[serde(rename = "StoreLFSPath", default, deserialize_with = "null_to_default")]
     pub store_lfs_path: String,
-    #[serde(rename = "LfsOid", default)]
+    #[serde(rename = "LfsOid", default, deserialize_with = "null_to_default")]
     pub lfs_oid: String,
     #[serde(rename = "LfsSize", default)]
     pub lfs_size: i64,
-    #[serde(rename = "TempPath", default)]
+    #[serde(rename = "TempPath", default, deserialize_with = "null_to_default")]
     pub temp_path: String,
     #[serde(rename = "RemoteObject", default)]
     pub remote_object: Option<RemoteObject>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub archive: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub entry: String,
     #[serde(rename = "Channel", default)]
     pub channel: Option<ChannelSettings>,
@@ -285,5 +297,33 @@ mod tests {
         let api = Api::new(url, "1.0".to_string(), reqwest::Client::new());
         let joined = api.join_url("internal/allowed");
         assert_eq!(joined.as_str(), "http://localhost:8080/api/v4/internal/allowed");
+    }
+
+    #[test]
+    fn test_response_accepts_json_null_strings() {
+        let json = r#"{
+            "GL_ID": "",
+            "GL_REPOSITORY": "project-14",
+            "GL_USERNAME": null,
+            "GitalyServer": {
+                "address": "unix:/var/opt/gitlab/gitaly/gitaly.socket",
+                "token": null
+            },
+            "Repository": {
+                "storage_name": "default",
+                "relative_path": "@hashed/ab/cd/repo.git",
+                "gl_project_path": "toaru/virus-sample",
+                "gl_repository": "project-14"
+            }
+        }"#;
+        let auth: Response = serde_json::from_str(json).expect("anonymous authorize JSON");
+        assert_eq!(auth.gl_id, "");
+        assert_eq!(auth.gl_username, "");
+        assert_eq!(auth.gl_repository, "project-14");
+        let gitaly = auth.gitaly_server.expect("GitalyServer");
+        assert_eq!(gitaly.address, "unix:/var/opt/gitlab/gitaly/gitaly.socket");
+        assert_eq!(gitaly.token, "");
+        let repo = auth.repository.expect("Repository");
+        assert_eq!(repo.gl_project_path, "toaru/virus-sample");
     }
 }

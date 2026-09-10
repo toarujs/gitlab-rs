@@ -404,6 +404,10 @@ impl SidechannelStream {
         Ok(())
     }
 
+    pub async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        futures::io::AsyncReadExt::read(&mut self.stream, buf).await
+    }
+
     pub async fn read_to_end(&mut self, buf: &mut Vec<u8>) -> io::Result<usize> {
         self.read_to_end_with_limit(buf, 100 * 1024 * 1024).await
     }
