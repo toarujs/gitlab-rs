@@ -66,6 +66,15 @@ pub struct TreeEntryBlob {
     pub data: Vec<u8>,
 }
 
+fn apply_gitaly_auth<T>(req: &mut tonic::Request<T>, token: &str) {
+    if token.is_empty() {
+        return;
+    }
+    if let Ok(val) = format!("Bearer {}", token).parse() {
+        req.metadata_mut().insert("authorization", val);
+    }
+}
+
 pub struct GitalyClient {
     smart_http: SmartHttpServiceClient<Channel>,
     repository: RepositoryServiceClient<Channel>,
@@ -113,10 +122,8 @@ impl GitalyClient {
         }
     }
 
-    fn auth_token(&self) -> tonic::metadata::MetadataValue<tonic::metadata::Ascii> {
-        format!("Bearer {}", self.server.token)
-            .parse()
-            .unwrap()
+    fn apply_auth<T>(&self, req: &mut tonic::Request<T>) {
+        apply_gitaly_auth(req, &self.server.token);
     }
 
     fn build_repo(&self, repo: &RepoInfo) -> Repository {
@@ -139,7 +146,7 @@ impl GitalyClient {
         let mut req = tonic::Request::new(InfoRefsRequest {
             repository: Some(repository),
         });
-        req.metadata_mut().insert("authorization", self.auth_token());
+        self.apply_auth(&mut req);
         let mut stream = self.smart_http.info_refs_upload_pack(req).await?.into_inner();
         let mut data = Vec::new();
         while let Some(chunk) = stream.message().await? {
@@ -152,7 +159,7 @@ impl GitalyClient {
         let mut req = tonic::Request::new(InfoRefsRequest {
             repository: Some(self.build_repo(repo)),
         });
-        req.metadata_mut().insert("authorization", self.auth_token());
+        self.apply_auth(&mut req);
         let mut stream = self.smart_http.info_refs_receive_pack(req).await?.into_inner();
         let mut data = Vec::new();
         while let Some(chunk) = stream.message().await? {
@@ -172,7 +179,7 @@ impl GitalyClient {
             data,
             ..Default::default()
         });
-        req.metadata_mut().insert("authorization", self.auth_token());
+        self.apply_auth(&mut req);
         let mut stream = self.smart_http.post_upload_pack(req).await?.into_inner();
         let mut result = Vec::new();
         while let Some(chunk) = stream.message().await? {
@@ -209,7 +216,7 @@ impl GitalyClient {
         let mut req = tonic::Request::new(PostUploadPackWithSidechannelRequest {
             repository: Some(self.build_repo(repo)),
         });
-        req.metadata_mut().insert("authorization", self.auth_token());
+        self.apply_auth(&mut req);
         req.metadata_mut().insert(
             "gitaly-sidechannel-id",
             key_hex.parse().unwrap(),
@@ -274,10 +281,10 @@ impl GitalyClient {
             data.len(),
         );
         let header = PostReceivePackRequest {
-            repository: Some(repo),
+            repository: Some(repo.clone()),
             data: vec![],
             gl_id: gl_id.to_string(),
-            gl_repository: "project-1".to_string(),
+            gl_repository: repo.gl_repository.clone(),
             gl_username: gl_username.to_string(),
             ..Default::default()
         };
@@ -289,11 +296,17 @@ impl GitalyClient {
 
         let stream = tokio_stream::iter(vec![header, body]);
         let mut req = tonic::Request::new(stream);
-        req.metadata_mut().insert("authorization", self.auth_token());
+        self.apply_auth(&mut req);
 
-        let response = self.smart_http.post_receive_pack(req).await?;
-        let response_data = response.into_inner().data;
-        tracing::info!("post_receive_pack response: {} bytes", response_data.len());
+        let mut response_stream = self.smart_http.post_receive_pack(req).await?.into_inner();
+        let mut response_data = Vec::new();
+        while let Some(chunk) = response_stream.message().await? {
+            response_data.extend_from_slice(&chunk.data);
+        }
+        tracing::info!(
+            "post_receive_pack response: {} bytes",
+            response_data.len()
+        );
         Ok(response_data)
     }
 
@@ -313,7 +326,7 @@ impl GitalyClient {
             path: path.to_string(),
             ..Default::default()
         });
-        req.metadata_mut().insert("authorization", self.auth_token());
+        self.apply_auth(&mut req);
         let mut stream = self.repository.get_archive(req).await?.into_inner();
         let mut data = Vec::new();
         while let Some(chunk) = stream.message().await? {
@@ -331,7 +344,7 @@ impl GitalyClient {
             repository: Some(self.build_repo(repo)),
             commit_id: commit_id.to_string(),
         });
-        req.metadata_mut().insert("authorization", self.auth_token());
+        self.apply_auth(&mut req);
         let mut stream = self.repository.get_snapshot(req).await?.into_inner();
         let mut data = Vec::new();
         while let Some(chunk) = stream.message().await? {
@@ -351,7 +364,7 @@ impl GitalyClient {
             oid: oid.to_string(),
             limit,
         });
-        req.metadata_mut().insert("authorization", self.auth_token());
+        self.apply_auth(&mut req);
         let mut stream = self.blob.get_blob(req).await?.into_inner();
         let mut data = Vec::new();
         while let Some(chunk) = stream.message().await? {
@@ -371,7 +384,7 @@ impl GitalyClient {
             oid: oid.to_string(),
             limit,
         });
-        req.metadata_mut().insert("authorization", self.auth_token());
+        self.apply_auth(&mut req);
         let mut stream = self.blob.get_blob(req).await?.into_inner();
         let mut meta = BlobMeta {
             oid: String::new(),
@@ -407,7 +420,7 @@ impl GitalyClient {
             limit: 0,
             max_size,
         });
-        req.metadata_mut().insert("authorization", self.auth_token());
+        self.apply_auth(&mut req);
         let mut stream = self.commit.tree_entry(req).await?.into_inner();
         let mut entry = TreeEntryBlob {
             object_type: 0,
@@ -445,7 +458,7 @@ impl GitalyClient {
             revision: revision.as_bytes().to_vec(),
             trailers: false,
         });
-        req.metadata_mut().insert("authorization", self.auth_token());
+        self.apply_auth(&mut req);
         let resp = self.commit.find_commit(req).await?.into_inner();
         Ok(resp.commit.map(|c| c.id).filter(|s| !s.is_empty()))
     }
@@ -462,7 +475,7 @@ impl GitalyClient {
             path: path.as_bytes().to_vec(),
             literal_pathspec: true,
         });
-        req.metadata_mut().insert("authorization", self.auth_token());
+        self.apply_auth(&mut req);
         let resp = self.commit.last_commit_for_path(req).await?.into_inner();
         Ok(resp.commit.map(|c| c.id).filter(|s| !s.is_empty()))
     }
@@ -478,7 +491,7 @@ impl GitalyClient {
             left_commit_id: left_commit_id.to_string(),
             right_commit_id: right_commit_id.to_string(),
         });
-        req.metadata_mut().insert("authorization", self.auth_token());
+        self.apply_auth(&mut req);
         let mut stream = self.diff.raw_diff(req).await?.into_inner();
         let mut data = Vec::new();
         while let Some(chunk) = stream.message().await? {
@@ -498,7 +511,7 @@ impl GitalyClient {
             left_commit_id: left_commit_id.to_string(),
             right_commit_id: right_commit_id.to_string(),
         });
-        req.metadata_mut().insert("authorization", self.auth_token());
+        self.apply_auth(&mut req);
         let mut stream = self.diff.raw_patch(req).await?.into_inner();
         let mut data = Vec::new();
         while let Some(chunk) = stream.message().await? {
@@ -593,5 +606,22 @@ mod tests {
         let (host, port) = parse_gitaly_address("gitaly.internal").unwrap();
         assert_eq!(host, "gitaly.internal");
         assert_eq!(port, 8075);
+    }
+
+    #[test]
+    fn test_apply_gitaly_auth_skips_empty_token() {
+        let mut req = tonic::Request::new(());
+        apply_gitaly_auth(&mut req, "");
+        assert!(req.metadata().get("authorization").is_none());
+    }
+
+    #[test]
+    fn test_apply_gitaly_auth_sets_bearer() {
+        let mut req = tonic::Request::new(());
+        apply_gitaly_auth(&mut req, "secret");
+        assert_eq!(
+            req.metadata().get("authorization").unwrap().to_str().unwrap(),
+            "Bearer secret"
+        );
     }
 }

@@ -355,6 +355,27 @@ pub async fn proxy_request_streaming(
     }
 
     // Only generate cache key for GET requests (memoizable)
+    if is_git_smart_http(uri.path()) {
+        let method_str = method.as_str().to_string();
+        let path_str = uri.path().to_string();
+        let result = handle_git_smart_http(&state, method, uri, headers, body).await;
+        let duration = timer.elapsed_ms();
+        state.metrics.record_request_duration(duration as f64 / 1000.0);
+        let response_status = match &result {
+            Ok(resp) => resp.status().as_u16(),
+            Err(s) => s.as_u16(),
+        };
+        timer.finish(response_status);
+        tracing::info!(
+            method = %method_str,
+            path = %path_str,
+            status = response_status,
+            duration_ms = duration,
+            "Git smart HTTP completed"
+        );
+        return result;
+    }
+
     let cache_key = if method == Method::GET {
         Some(generate_cache_key(&method, &uri))
     } else {
@@ -567,6 +588,14 @@ async fn process_response_pipeline(
         ).await {
             return Ok(inject_response);
         }
+    }
+
+    if is_internal_workhorse_json(&filtered) {
+        tracing::error!(
+            "Refusing to leak workhorse JSON to client for {}",
+            uri.path()
+        );
+        return Err(StatusCode::BAD_GATEWAY);
     }
 
     if let Some(ref cache) = state.cache {
@@ -913,6 +942,342 @@ pub async fn proxy_websocket(
 
 fn is_git_url(path: &str) -> bool {
     path.contains(".git/") || path.ends_with(".git")
+}
+
+fn is_git_smart_http(path: &str) -> bool {
+    let path = path.split('?').next().unwrap_or(path);
+    is_git_url(path)
+        && (path.ends_with("/info/refs")
+        || path.ends_with("/git-upload-pack")
+        || path.ends_with("/git-receive-pack"))
+}
+
+fn looks_like_git_pktline(body: &[u8]) -> bool {
+    body.len() >= 4
+        && body[..4].iter().all(|b| b.is_ascii_hexdigit())
+        && (body.starts_with(b"001e# service=")
+            || body.starts_with(b"001f# service=")
+            || body
+                .windows(b"# service=git-upload-pack".len())
+                .any(|w| w == b"# service=git-upload-pack")
+            || body
+                .windows(b"# service=git-receive-pack".len())
+                .any(|w| w == b"# service=git-receive-pack"))
+}
+
+fn workhorse_json_content_type(headers: &HeaderMap) -> bool {
+    headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| {
+            v.starts_with(crate::api::RESPONSE_CONTENT_TYPE) || v.contains("application/json")
+        })
+        .unwrap_or(false)
+}
+
+fn is_internal_workhorse_json(headers: &HeaderMap) -> bool {
+    headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.starts_with(crate::api::RESPONSE_CONTENT_TYPE))
+        .unwrap_or(false)
+}
+
+fn repo_from_auth(auth: &crate::api::Response) -> Option<(gitaly::GitalyServer, gitaly::RepoInfo)> {
+    let gs = auth.gitaly_server.as_ref()?;
+    let repo = auth.repository.as_ref()?;
+    if gs.address.is_empty() || repo.storage_name.is_empty() || repo.relative_path.is_empty() {
+        return None;
+    }
+    Some((
+        gitaly::GitalyServer {
+            address: gs.address.clone(),
+            token: gs.token.clone(),
+            call_metadata: gs.call_metadata.clone(),
+        },
+        gitaly::RepoInfo::new(
+            &repo.storage_name,
+            &repo.relative_path,
+            &repo.gl_project_path,
+            &repo.gl_repository,
+        ),
+    ))
+}
+
+async fn handle_git_smart_http(
+    state: &AppState,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    body: Body,
+) -> Result<Response, StatusCode> {
+    let path = uri.path().to_string();
+    let query = uri.query().unwrap_or("").to_string();
+    let pack_body = if matches!(method, Method::POST | Method::PUT | Method::PATCH) {
+        body.collect().await.map_err(|e| {
+            tracing::error!("Git smart HTTP body read failed: {}", e);
+            StatusCode::BAD_REQUEST
+        })?.to_bytes()
+    } else {
+        Bytes::new()
+    };
+
+    let (status, auth_headers, auth_body) =
+        git_pre_authorize(state, &method, &uri, &headers).await?;
+
+    if !status.is_success() {
+        return Ok((status, auth_headers, auth_body).into_response());
+    }
+
+    if looks_like_git_pktline(&auth_body) {
+        return git_protocol_response(&path, &query, auth_body);
+    }
+
+    if !workhorse_json_content_type(&auth_headers) {
+        tracing::error!("Git authorize returned non-JSON success for {}", path);
+        return Err(StatusCode::BAD_GATEWAY);
+    }
+
+    let auth: crate::api::Response = serde_json::from_slice(&auth_body).map_err(|e| {
+        tracing::error!("Git authorize JSON decode failed: {}", e);
+        StatusCode::BAD_GATEWAY
+    })?;
+
+    let Some((server, repo)) = repo_from_auth(&auth) else {
+        let gs = auth.gitaly_server.as_ref();
+        let repo = auth.repository.as_ref();
+        tracing::error!(
+            "Git authorize JSON missing GitalyServer/Repository fields addr={} token={} storage={} relpath={} glrepo={}",
+            gs.map(|s| s.address.len()).unwrap_or(0),
+            gs.map(|s| s.token.len()).unwrap_or(0),
+            repo.map(|r| r.storage_name.len()).unwrap_or(0),
+            repo.map(|r| r.relative_path.len()).unwrap_or(0),
+            auth.gl_repository
+        );
+        return Err(StatusCode::BAD_GATEWAY);
+    };
+
+    serve_git_from_gitaly(
+        &path,
+        &query,
+        pack_body.to_vec(),
+        server,
+        repo,
+        &auth.gl_id,
+        &auth.gl_username,
+    )
+    .await
+}
+
+async fn git_pre_authorize(
+    state: &AppState,
+    method: &Method,
+    uri: &Uri,
+    headers: &HeaderMap,
+) -> Result<(StatusCode, HeaderMap, Bytes), StatusCode> {
+    if let Some(ref socket_path) = state.proxy.auth_socket {
+        git_pre_authorize_unix(state, method, uri, headers, socket_path).await
+    } else {
+        git_pre_authorize_tcp(state, method, uri, headers).await
+    }
+}
+
+async fn git_pre_authorize_unix(
+    state: &AppState,
+    method: &Method,
+    uri: &Uri,
+    headers: &HeaderMap,
+    socket_path: &str,
+) -> Result<(StatusCode, HeaderMap, Bytes), StatusCode> {
+    let path = uri
+        .path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or(uri.path());
+    let hex_path = hex::encode(socket_path);
+    let unix_uri = format!("unix://{}:0{}", hex_path, path);
+
+    let mut request = hyper::Request::builder()
+        .method(method.as_str())
+        .uri(&unix_uri);
+
+    for (key, value) in headers.iter() {
+        let name = key.as_str();
+        if matches!(
+            name,
+            "host" | "content-length" | "transfer-encoding" | "connection"
+        ) {
+            continue;
+        }
+        if let Ok(v) = value.to_str() {
+            request = request.header(name, v);
+        }
+    }
+
+    let original_host = headers
+        .get("host")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("localhost");
+    request = request.header("host", original_host);
+    request = request.header("X-Forwarded-Proto", "https");
+
+    let mut auth_headers = HeaderMap::new();
+    if secret::add_workhorse_headers(&mut auth_headers, &state.secret).is_ok() {
+        for (key, value) in auth_headers.iter() {
+            if let Ok(v) = value.to_str() {
+                request = request.header(key.as_str(), v);
+            }
+        }
+    }
+
+    let req = request
+        .body(http_body_util::Full::new(Bytes::new()))
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let resp = state.unix_client.request(req.into()).await.map_err(|e| {
+        tracing::error!("Git authorize unix error: {}", e);
+        StatusCode::BAD_GATEWAY
+    })?;
+
+    let status = StatusCode::from_u16(resp.status().as_u16())
+        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    let mut response_headers = HeaderMap::new();
+    for (key, value) in resp.headers() {
+        if let Ok(v) = value.to_str() {
+            if let Ok(name) = key.as_str().parse::<HeaderName>() {
+                if let Ok(val) = v.parse::<HeaderValue>() {
+                    response_headers.append(name, val);
+                }
+            }
+        }
+    }
+    let body = resp.into_body().collect().await.map_err(|e| {
+        tracing::error!("Git authorize unix body error: {}", e);
+        StatusCode::BAD_GATEWAY
+    })?.to_bytes();
+    Ok((status, response_headers, body))
+}
+
+async fn git_pre_authorize_tcp(
+    state: &AppState,
+    method: &Method,
+    uri: &Uri,
+    headers: &HeaderMap,
+) -> Result<(StatusCode, HeaderMap, Bytes), StatusCode> {
+    let path_and_query = uri
+        .path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or(uri.path());
+    let backend_url = format!("{}{}", state.proxy.backend_url, path_and_query);
+    let mut request = state.proxy.client.request(method.clone(), &backend_url);
+
+    let mut filtered = forwardheaders::forward_request_headers(headers, &state.proxy.backend_url);
+    filtered.insert("X-Forwarded-Proto", HeaderValue::from_static("https"));
+    filtered.remove("content-length");
+    for (key, value) in filtered.iter() {
+        request = request.header(key.as_str(), value.to_str().unwrap_or(""));
+    }
+    let mut auth_headers = HeaderMap::new();
+    if secret::add_workhorse_headers(&mut auth_headers, &state.secret).is_ok() {
+        for (key, value) in auth_headers.iter() {
+            request = request.header(key.as_str(), value.to_str().unwrap_or(""));
+        }
+    }
+    request = request.body(Vec::<u8>::new());
+
+    let response = request.send().await.map_err(|e| {
+        tracing::error!("Git authorize tcp error: {}", e);
+        StatusCode::BAD_GATEWAY
+    })?;
+    let status = StatusCode::from_u16(response.status().as_u16())
+        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    let mut response_headers = HeaderMap::new();
+    for (key, value) in response.headers() {
+        if let Ok(v) = value.to_str() {
+            if let Ok(name) = key.as_str().parse::<HeaderName>() {
+                if let Ok(val) = v.parse::<HeaderValue>() {
+                    response_headers.append(name, val);
+                }
+            }
+        }
+    }
+    let body = response.bytes().await.unwrap_or_default();
+    Ok((status, response_headers, body))
+}
+
+fn git_protocol_response(path: &str, query: &str, body: Bytes) -> Result<Response, StatusCode> {
+    let content_type = git_content_type(path, query);
+    let mut headers = HeaderMap::new();
+    headers.insert("content-type", content_type.parse().unwrap());
+    headers.insert("cache-control", "no-cache".parse().unwrap());
+    Ok((StatusCode::OK, headers, body).into_response())
+}
+
+fn git_content_type(path: &str, query: &str) -> &'static str {
+    if path.ends_with("/info/refs") {
+        if query.contains("git-receive-pack") {
+            "application/x-git-receive-pack-advertisement"
+        } else {
+            "application/x-git-upload-pack-advertisement"
+        }
+    } else if path.ends_with("/git-receive-pack") {
+        "application/x-git-receive-pack-result"
+    } else {
+        "application/x-git-upload-pack-result"
+    }
+}
+
+async fn serve_git_from_gitaly(
+    path: &str,
+    query: &str,
+    pack_body: Vec<u8>,
+    server: gitaly::GitalyServer,
+    repo: gitaly::RepoInfo,
+    gl_id: &str,
+    gl_username: &str,
+) -> Result<Response, StatusCode> {
+    let mut client = gitaly::GitalyClient::connect(&server).await.map_err(|e| {
+        tracing::error!("Gitaly connect failed: {}", e);
+        StatusCode::BAD_GATEWAY
+    })?;
+
+    if path.ends_with("/info/refs") {
+        let result = if query.contains("git-receive-pack") {
+            client.info_refs_receive_pack(&repo).await
+        } else {
+            client.info_refs_upload_pack(&repo).await
+        };
+        match result {
+            Ok(refs_data) => git_protocol_response(path, query, Bytes::from(refs_data)),
+            Err(e) => {
+                tracing::error!("Gitaly info_refs failed: {}", e);
+                Err(StatusCode::BAD_GATEWAY)
+            }
+        }
+    } else if path.ends_with("/git-upload-pack") {
+        match client
+            .post_upload_pack_with_sidechannel(&repo, pack_body)
+            .await
+        {
+            Ok(pack_data) => git_protocol_response(path, query, Bytes::from(pack_data)),
+            Err(e) => {
+                tracing::error!("Gitaly post_upload_pack failed: {}", e);
+                Err(StatusCode::BAD_GATEWAY)
+            }
+        }
+    } else if path.ends_with("/git-receive-pack") {
+        match client
+            .post_receive_pack(&repo, pack_body, gl_id, gl_username)
+            .await
+        {
+            Ok(data) => git_protocol_response(path, query, Bytes::from(data)),
+            Err(e) => {
+                tracing::error!("Gitaly post_receive_pack failed: {}", e);
+                Err(StatusCode::BAD_GATEWAY)
+            }
+        }
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
 }
 
 /// Proxy to Go workhorse sidecar for Gitaly-backed git operations
@@ -1352,5 +1717,88 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("upgrade", HeaderValue::from_static("websocket"));
         assert!(!is_blocked_graphql_get_mutation(&Method::GET, &uri, &headers));
+    }
+
+    #[test]
+    fn test_git_pktline_is_kept_as_raw_bytes() {
+        let body = Bytes::from_static(b"001e# service=git-upload-pack\n0000");
+        assert!(looks_like_git_pktline(&body));
+        assert_eq!(body.as_ref(), b"001e# service=git-upload-pack\n0000");
+    }
+
+    #[test]
+    fn test_repo_from_auth_rejects_incomplete_gitaly_data() {
+        let auth: crate::api::Response = serde_json::from_str(
+            r#"{
+                "GitalyServer": {"address": "unix:/var/opt/gitlab/gitaly/gitaly.socket", "token": ""},
+                "Repository": {
+                    "storage_name": "default",
+                    "relative_path": "",
+                    "gl_project_path": "group/repo"
+                }
+            }"#,
+        )
+        .unwrap();
+
+        assert!(repo_from_auth(&auth).is_none());
+    }
+
+    #[test]
+    fn test_repo_from_auth_accepts_empty_gitaly_token() {
+        let auth: crate::api::Response = serde_json::from_str(
+            r#"{
+                "GitalyServer": {"address": "unix:/var/opt/gitlab/gitaly/gitaly.socket", "token": ""},
+                "Repository": {
+                    "storage_name": "default",
+                    "relative_path": "@hashed/repo.git",
+                    "gl_project_path": "group/repo",
+                    "gl_repository": "project-7"
+                }
+            }"#,
+        )
+        .unwrap();
+
+        assert!(repo_from_auth(&auth).is_some());
+    }
+
+    #[test]
+    fn test_repo_from_auth_accepts_complete_gitaly_data() {
+        let auth: crate::api::Response = serde_json::from_str(
+            r#"{
+                "GitalyServer": {"address": "127.0.0.1:8075", "token": "token"},
+                "Repository": {
+                    "storage_name": "default",
+                    "relative_path": "@hashed/repo.git",
+                    "gl_project_path": "group/repo",
+                    "gl_repository": "project-7"
+                }
+            }"#,
+        )
+        .unwrap();
+
+        assert!(repo_from_auth(&auth).is_some());
+    }
+
+    #[test]
+    fn test_is_git_smart_http_matches_wiki_and_snippets() {
+        assert!(is_git_smart_http("/group/repo.git/info/refs"));
+        assert!(is_git_smart_http("/group/repo.wiki.git/info/refs"));
+        assert!(is_git_smart_http("/snippets/1.git/git-upload-pack"));
+        assert!(is_git_smart_http("/group/repo.git/git-receive-pack"));
+        assert!(!is_git_smart_http("/group/repo.git/info/lfs"));
+        assert!(!is_git_smart_http("/api/v4/projects"));
+    }
+
+    #[test]
+    fn test_is_internal_workhorse_json_ignores_plain_json() {
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/json".parse().unwrap());
+        assert!(!is_internal_workhorse_json(&headers));
+
+        headers.insert(
+            "content-type",
+            "application/vnd.gitlab-workhorse+json".parse().unwrap(),
+        );
+        assert!(is_internal_workhorse_json(&headers));
     }
 }

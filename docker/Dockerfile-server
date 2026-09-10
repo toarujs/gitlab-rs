@@ -33,5 +33,6 @@ RUN chmod +x /opt/gitlab/embedded/bin/gitlab-workhorse && chmod +x /assets/init-
 RUN echo 'gitlab_rails["lfs_enabled"] = true' >> /opt/gitlab/etc/gitlab.rb.template
 RUN echo 'gitlab_rails["version_check_enabled"] = false' >> /opt/gitlab/etc/gitlab.rb.template
 RUN echo 'gitlab_rails["usage_ping_enabled"] = false' >> /opt/gitlab/etc/gitlab.rb.template
+RUN echo 'gitlab_rails["internal_api_url"] = "http://127.0.0.1:80"' >> /opt/gitlab/etc/gitlab.rb.template
 
 RUN /opt/gitlab/embedded/bin/gitlab-workhorse --version

@@ -136,6 +136,12 @@ elif [[ ! -e /etc/gitlab/gitlab.rb ]]; then
 	chmod 0600 /etc/gitlab/gitlab.rb
 fi
 
+# Rust Workhorse listens on TCP :80. Gitaly hooks must use this URL.
+if [[ -f /etc/gitlab/gitlab.rb ]] && ! grep -q "internal_api_url" /etc/gitlab/gitlab.rb; then
+	echo 'gitlab_rails["internal_api_url"] = "http://127.0.0.1:80"' >> /etc/gitlab/gitlab.rb
+	echo "Set gitlab_rails['internal_api_url'] = http://127.0.0.1:80"
+fi
+
 # Generate ssh host keys for the first time
 if [[ ! -f /etc/gitlab/ssh_host_rsa_key ]]; then
 	echo "Generating ssh_host_rsa_key..."

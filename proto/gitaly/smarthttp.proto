@@ -69,5 +69,5 @@ service SmartHTTPService {
   rpc InfoRefsReceivePack(InfoRefsRequest) returns (stream InfoRefsResponse);
   rpc PostUploadPack(PostUploadPackRequest) returns (stream PostUploadPackResponse);
   rpc PostUploadPackWithSidechannel(PostUploadPackWithSidechannelRequest) returns (PostUploadPackWithSidechannelResponse);
-  rpc PostReceivePack(stream PostReceivePackRequest) returns (PostReceivePackResponse);
+  rpc PostReceivePack(stream PostReceivePackRequest) returns (stream PostReceivePackResponse);
 }
