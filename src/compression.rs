@@ -3,6 +3,11 @@ use axum::response::Response;
 use std::path::{Path, PathBuf};
 use tokio::fs;
 use tokio::io::AsyncReadExt;
+use axum::extract::Request;
+use axum::http::Extensions;
+use axum::middleware::Next;
+use http_body::Body;
+use tower_http::compression::predicate::{DefaultPredicate, Predicate};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompressedEncoding {
@@ -39,6 +44,69 @@ pub fn negotiate_encoding(headers: &HeaderMap) -> Option<CompressedEncoding> {
     } else {
         None
     }
+}
+
+/// Marker inserted on git pack responses so CompressionLayer skips zstd/br.
+#[derive(Clone, Copy, Debug)]
+pub struct SkipGitPackCompression;
+
+#[derive(Clone)]
+pub struct GitPackSkipPredicate {
+    inner: DefaultPredicate,
+}
+
+impl GitPackSkipPredicate {
+    pub fn new() -> Self {
+        Self {
+            inner: DefaultPredicate::new(),
+        }
+    }
+}
+
+impl Predicate for GitPackSkipPredicate {
+    fn should_compress<B>(&self, response: &axum::http::Response<B>) -> bool
+    where
+        B: Body,
+    {
+        if !allow_http_compression(response.headers(), response.extensions()) {
+            return false;
+        }
+        self.inner.should_compress(response)
+    }
+}
+
+pub fn is_git_pack_path(path: &str) -> bool {
+    let path = path.split('?').next().unwrap_or(path);
+    path.ends_with("/git-upload-pack") || path.ends_with("/git-receive-pack")
+}
+
+pub fn skip_git_http_compression_content_type(content_type: &str) -> bool {
+    let ct = content_type
+        .split(';')
+        .next()
+        .unwrap_or(content_type)
+        .trim();
+    ct.starts_with("application/x-git-")
+}
+
+pub fn allow_http_compression(headers: &HeaderMap, extensions: &Extensions) -> bool {
+    if extensions.get::<SkipGitPackCompression>().is_some() {
+        return false;
+    }
+    let ct = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    !skip_git_http_compression_content_type(ct)
+}
+
+pub async fn mark_git_pack_skip_compress(req: Request, next: Next) -> Response {
+    let skip = is_git_pack_path(req.uri().path());
+    let mut resp = next.run(req).await;
+    if skip {
+        resp.extensions_mut().insert(SkipGitPackCompression);
+    }
+    resp
 }
 
 pub async fn find_compressed_variant(
@@ -242,5 +310,46 @@ mod tests {
     fn test_negotiate_empty() {
         let headers = HeaderMap::new();
         assert_eq!(negotiate_encoding(&headers), None);
+    }
+
+    #[test]
+    fn skips_git_pack_content_types() {
+        assert!(skip_git_http_compression_content_type(
+            "application/x-git-upload-pack-result"
+        ));
+        assert!(skip_git_http_compression_content_type(
+            "application/x-git-receive-pack-result"
+        ));
+        assert!(skip_git_http_compression_content_type(
+            "application/x-git-upload-pack-advertisement"
+        ));
+        assert!(skip_git_http_compression_content_type(
+            "application/x-git-packed-objects; charset=utf-8"
+        ));
+    }
+
+    #[test]
+    fn keeps_json_and_html_compressible() {
+        assert!(!skip_git_http_compression_content_type("application/json"));
+        assert!(!skip_git_http_compression_content_type(
+            "text/html; charset=utf-8"
+        ));
+    }
+
+    #[test]
+    fn pack_path_matches_upload_and_receive() {
+        assert!(is_git_pack_path("/group/repo.git/git-upload-pack"));
+        assert!(is_git_pack_path("/group/repo.git/git-receive-pack?service=git-receive-pack"));
+        assert!(!is_git_pack_path("/group/repo.git/info/refs"));
+        assert!(!is_git_pack_path("/api/v4/projects"));
+    }
+
+    #[test]
+    fn allow_http_compression_respects_extension_marker() {
+        let headers = HeaderMap::new();
+        let mut ext = Extensions::new();
+        assert!(allow_http_compression(&headers, &ext));
+        ext.insert(SkipGitPackCompression);
+        assert!(!allow_http_compression(&headers, &ext));
     }
 }

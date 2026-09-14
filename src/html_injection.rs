@@ -3,7 +3,7 @@ use axum::response::Response;
 use http_body_util::BodyExt;
 
 pub const LANG_SWITCHER_CSS: &str = r#"
-#lang-switcher{position:fixed;bottom:20px;right:20px;z-index:9999;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+#lang-switcher{position:fixed;bottom:20px;right:20px;z-index:2147483646;pointer-events:auto;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
 #lang-switcher .lang-btn{display:flex;align-items:center;gap:6px;padding:8px 14px;background:#fff;border:1px solid #dcdcde;border-radius:8px;cursor:pointer;font-size:14px;color:#333;box-shadow:0 2px 8px rgba(0,0,0,.12);transition:all .2s}
 #lang-switcher .lang-btn:hover{background:#f0f0f0;border-color:#bbb}
 #lang-switcher .lang-btn svg{width:12px;height:12px;transition:transform .2s}
@@ -30,8 +30,10 @@ pub const LANG_SWITCHER_HTML: &str = r#"
 </div>
 <script>
 (function(){
-  var m=document.cookie.match(/(?:^|;\s*)gitlab_preferred_language=([^;]*)/);
-  var cur=m?m[1]:'en';
+  var c=document.cookie;
+  var m=c.match(/(?:^|;\s*)preferred_language=([^;]*)/);
+  if(!m) m=c.match(/(?:^|;\s*)gitlab_preferred_language=([^;]*)/);
+  var cur=m?decodeURIComponent(m[1]):'en';
   var links=document.querySelectorAll('#lang-switcher .lang-menu a');
   for(var i=0;i<links.length;i++){
     var href=links[i].getAttribute('href');

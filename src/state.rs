@@ -3,6 +3,7 @@
 use axum::{Json, response::IntoResponse};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::Duration;
 
 use super::cache;
 use super::download;
@@ -33,6 +34,8 @@ pub struct AppState {
     pub webp_converter: Arc<imageresizer::WebPConverter>,
     pub unix_client: Arc<proxy::UnixSocketClient>,
     pub hotpath: crate::hotpath::HotPathState,
+    pub redis: Option<crate::redis::RedisClient>,
+    pub ci_long_polling: Duration,
 }
 
 impl std::fmt::Debug for AppState {
@@ -51,6 +54,8 @@ impl std::fmt::Debug for AppState {
             .field("secret", &"<secret>")
             .field("unix_client", &"<UnixSocketClient>")
             .field("hotpath", &self.hotpath)
+            .field("redis", &self.redis.as_ref().map(|_| "<RedisClient>"))
+            .field("ci_long_polling", &self.ci_long_polling)
             .finish()
     }
 }

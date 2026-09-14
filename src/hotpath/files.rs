@@ -564,7 +564,7 @@ impl HotPathState {
             timeout: std::time::Duration::from_millis(timeout_ms),
             max_file_bytes,
             database_url: resolve_database_url(),
-            redis_url: resolve_redis_url(),
+            redis_url: crate::redis::resolve_redis_url(),
         }
     }
 }
@@ -643,23 +643,6 @@ pub fn database_url_from_yml(text: &str) -> Option<String> {
         parts.push(format!("port={port}"));
     }
     Some(parts.join(" "))
-}
-
-fn resolve_redis_url() -> Option<String> {
-    if let Ok(url) = std::env::var("GITLAB_RS_REDIS_URL") {
-        if !url.is_empty() {
-            return Some(url);
-        }
-    }
-    if let Ok(url) = std::env::var("REDIS_URL") {
-        if !url.is_empty() {
-            return Some(url);
-        }
-    }
-    if std::path::Path::new("/var/opt/gitlab/redis/redis.socket").exists() {
-        return Some("unix:///var/opt/gitlab/redis/redis.socket".to_string());
-    }
-    Some("redis://127.0.0.1:6379".to_string())
 }
 
 #[cfg(test)]

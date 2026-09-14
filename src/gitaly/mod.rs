@@ -23,7 +23,7 @@ use gitaly::{
 };
 use tonic::transport::Channel;
 use bytes::Bytes;
-use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
 
 #[derive(Debug, Clone)]
 pub struct GitalyServer {
@@ -287,17 +287,16 @@ impl GitalyClient {
     pub async fn post_receive_pack(
         &mut self,
         repo: &RepoInfo,
-        data: Vec<u8>,
+        data: impl Stream<Item = Result<Bytes, io::Error>> + Send + 'static,
         gl_id: &str,
         gl_username: &str,
-    ) -> Result<Vec<u8>, tonic::Status> {
+    ) -> Result<ReceiverStream<Result<Bytes, io::Error>>, tonic::Status> {
         let repo = self.build_repo(repo);
         tracing::info!(
-            "post_receive_pack: repo={:?}, gl_id={}, gl_username={}, data_len={}",
+            "post_receive_pack: repo={:?}, gl_id={}, gl_username={}",
             repo,
             gl_id,
             gl_username,
-            data.len(),
         );
         let header = PostReceivePackRequest {
             repository: Some(repo.clone()),
@@ -308,25 +307,67 @@ impl GitalyClient {
             ..Default::default()
         };
 
-        let body = PostReceivePackRequest {
-            data: data.clone(),
-            ..Default::default()
-        };
+        let (tx, rx) = mpsc::channel::<PostReceivePackRequest>(16);
+        tx.send(header)
+            .await
+            .map_err(|_| tonic::Status::internal("receive-pack header dropped"))?;
+        tokio::spawn(async move {
+            tokio::pin!(data);
+            while let Some(item) = data.next().await {
+                match item {
+                    Ok(bytes) if bytes.is_empty() => {}
+                    Ok(bytes) => {
+                        let msg = PostReceivePackRequest {
+                            data: bytes.to_vec(),
+                            ..Default::default()
+                        };
+                        if tx.send(msg).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("receive-pack request stream: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
 
-        let stream = tokio_stream::iter(vec![header, body]);
-        let mut req = tonic::Request::new(stream);
+        let mut req = tonic::Request::new(ReceiverStream::new(rx));
         self.apply_auth(&mut req);
 
         let mut response_stream = self.smart_http.post_receive_pack(req).await?.into_inner();
-        let mut response_data = Vec::new();
-        while let Some(chunk) = response_stream.message().await? {
-            response_data.extend_from_slice(&chunk.data);
-        }
-        tracing::info!(
-            "post_receive_pack response: {} bytes",
-            response_data.len()
-        );
-        Ok(response_data)
+        let (out_tx, out_rx) = mpsc::channel::<Result<Bytes, io::Error>>(16);
+        tokio::spawn(async move {
+            let mut total = 0usize;
+            loop {
+                match response_stream.message().await {
+                    Ok(Some(chunk)) => {
+                        if chunk.data.is_empty() {
+                            continue;
+                        }
+                        total += chunk.data.len();
+                        if out_tx.send(Ok(Bytes::from(chunk.data))).await.is_err() {
+                            tracing::warn!(
+                                "receive-pack: client disconnected after {} bytes",
+                                total
+                            );
+                            break;
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(e) => {
+                        tracing::error!("receive-pack response: {}", e);
+                        let _ = out_tx
+                            .send(Err(io::Error::new(io::ErrorKind::Other, e)))
+                            .await;
+                        break;
+                    }
+                }
+            }
+            tracing::info!("post_receive_pack response: {} bytes", total);
+        });
+        Ok(ReceiverStream::new(out_rx))
     }
 
     pub async fn get_archive(

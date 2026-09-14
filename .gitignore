@@ -1,6 +1,9 @@
 # Rust build artifacts
 /target/
 
+# Runner crate build artifacts
+/runner/target/
+
 # Compiled binary
 docker/gitlab-workhorse-rs
 

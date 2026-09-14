@@ -58,6 +58,10 @@ pub fn path_template(path: &str) -> String {
         return "/".to_string();
     }
 
+    if let Some(template) = git_smart_http_template(path) {
+        return template;
+    }
+
     let mut parts: Vec<String> = path.split('/').map(|s| s.to_string()).collect();
     let mut i = 0;
     while i < parts.len() {
@@ -97,6 +101,20 @@ pub fn path_template(path: &str) -> String {
         "/".to_string()
     } else {
         out
+    }
+}
+
+/// `/group/sub/repo.git/info/refs` -> `/:namespace/:project.git/info/refs`
+fn git_smart_http_template(path: &str) -> Option<String> {
+    let git_at = path.find(".git/")?;
+    let suffix = &path[git_at + 4..];
+    if matches!(
+        suffix,
+        "/info/refs" | "/git-upload-pack" | "/git-receive-pack"
+    ) {
+        Some(format!("/:namespace/:project.git{suffix}"))
+    } else {
+        None
     }
 }
 
@@ -245,6 +263,30 @@ mod tests {
         assert_eq!(
             path_template("/api/v4/projects?membership=true"),
             "/api/v4/projects"
+        );
+    }
+
+    #[test]
+    fn test_path_template_git_smart_http() {
+        assert_eq!(
+            path_template("/toaru/virus-sample.git/info/refs?service=git-upload-pack"),
+            "/:namespace/:project.git/info/refs"
+        );
+        assert_eq!(
+            path_template("/group/sub/repo.git/git-upload-pack"),
+            "/:namespace/:project.git/git-upload-pack"
+        );
+        assert_eq!(
+            path_template("/group/repo.wiki.git/git-receive-pack"),
+            "/:namespace/:project.git/git-receive-pack"
+        );
+        assert_eq!(
+            path_template("/snippets/1.git/git-upload-pack"),
+            "/:namespace/:project.git/git-upload-pack"
+        );
+        assert_eq!(
+            path_template("/group/repo.git/info/lfs"),
+            "/group/repo.git/info/lfs"
         );
     }
 

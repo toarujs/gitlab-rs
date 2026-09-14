@@ -221,7 +221,7 @@ impl Default for Config {
             api_limit: None,
             api_queue_limit: None,
             api_queue_timeout: Duration::from_secs(30),
-            api_ci_long_polling_duration: Duration::from_millis(50),
+            api_ci_long_polling_duration: Duration::from_secs(50),
             log_file: None,
             log_format: LogFormat::Text,
             pprof_listen_addr: None,
@@ -359,5 +359,18 @@ impl Default for CliArgs {
             prometheus_listen_addr: None,
             print_version: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_ci_long_polling_is_50s() {
+        assert_eq!(
+            Config::default().api_ci_long_polling_duration,
+            Duration::from_secs(50)
+        );
     }
 }

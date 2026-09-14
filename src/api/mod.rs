@@ -32,6 +32,18 @@ where
     Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
+fn null_string_map<'de, D>(deserializer: D) -> Result<HashMap<String, String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt = Option::<HashMap<String, Option<String>>>::deserialize(deserializer)?;
+    Ok(opt
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(k, v)| (k, v.unwrap_or_default()))
+        .collect())
+}
+
 #[derive(Clone)]
 pub struct Api {
     pub url: Arc<Url>,
@@ -45,7 +57,7 @@ pub struct GitalyServer {
     pub address: String,
     #[serde(default, deserialize_with = "null_to_default")]
     pub token: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_string_map")]
     pub call_metadata: HashMap<String, String>,
 }
 
@@ -57,7 +69,7 @@ pub struct GitalyRepository {
     pub relative_path: String,
     #[serde(rename = "git_object_directory", default, deserialize_with = "null_to_default")]
     pub git_object_directory: String,
-    #[serde(rename = "git_alternate_object_directories", default)]
+    #[serde(rename = "git_alternate_object_directories", default, deserialize_with = "null_to_default")]
     pub git_alternate_object_directories: Vec<String>,
     #[serde(rename = "gl_repository", default, deserialize_with = "null_to_default")]
     pub gl_repository: String,
@@ -325,5 +337,46 @@ mod tests {
         assert_eq!(gitaly.token, "");
         let repo = auth.repository.expect("Repository");
         assert_eq!(repo.gl_project_path, "toaru/virus-sample");
+    }
+
+    #[test]
+    fn test_response_accepts_null_call_metadata() {
+        let json = r#"{
+            "GitalyServer": {
+                "address": "unix:/var/opt/gitlab/gitaly/gitaly.socket",
+                "token": "",
+                "call_metadata": null
+            },
+            "Repository": {
+                "storage_name": "default",
+                "relative_path": "@hashed/repo.git",
+                "git_alternate_object_directories": null,
+                "gl_project_path": "group/repo"
+            }
+        }"#;
+        let auth: Response = serde_json::from_str(json).expect("null map JSON");
+        let gitaly = auth.gitaly_server.expect("GitalyServer");
+        assert!(gitaly.call_metadata.is_empty());
+        let repo = auth.repository.expect("Repository");
+        assert!(repo.git_alternate_object_directories.is_empty());
+    }
+
+    #[test]
+    fn test_response_accepts_null_call_metadata_values() {
+        let json = r#"{
+            "GitalyServer": {
+                "address": "unix:/var/opt/gitlab/gitaly/gitaly.socket",
+                "token": "",
+                "call_metadata": {"gitaly-feature-flag": null, "ok": "1"}
+            },
+            "Repository": {
+                "storage_name": "default",
+                "relative_path": "@hashed/repo.git"
+            }
+        }"#;
+        let auth: Response = serde_json::from_str(json).expect("null map values");
+        let gitaly = auth.gitaly_server.expect("GitalyServer");
+        assert_eq!(gitaly.call_metadata.get("gitaly-feature-flag").map(String::as_str), Some(""));
+        assert_eq!(gitaly.call_metadata.get("ok").map(String::as_str), Some("1"));
     }
 }

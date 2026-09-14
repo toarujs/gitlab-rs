@@ -28,16 +28,8 @@ use super::transport;
 fn generate_cache_key(method: &Method, uri: &Uri) -> String {
     let path = uri.path();
     let pq = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or(path);
-    
-    // For static assets, strip common cache-busting query parameters
-    let is_static = path.ends_with(".js") || path.ends_with(".css") || 
-                    path.ends_with(".png") || path.ends_with(".jpg") || 
-                    path.ends_with(".jpeg") || path.ends_with(".gif") || 
-                    path.ends_with(".svg") || path.ends_with(".ico") ||
-                    path.ends_with(".woff") || path.ends_with(".woff2") ||
-                    path.ends_with(".ttf") || path.ends_with(".eot");
-    
-    if is_static {
+
+    if is_static_asset_path(path) {
         if let Some(query) = uri.query() {
             // Strip common cache-busting params (v, timestamp, hash)
             let params: Vec<&str> = query.split('&')
@@ -57,6 +49,53 @@ fn generate_cache_key(method: &Method, uri: &Uri) -> String {
     } else {
         format!("{}:{}", method.as_str(), pq)
     }
+}
+
+fn should_cache_response(method: &Method, path: &str) -> bool {
+    *method == Method::GET
+        && is_static_asset_path(path)
+        && !path.starts_with("/api/")
+        && !crate::webide_nls::is_nls_messages_path(path)
+}
+
+fn is_static_asset_path(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.ends_with(".js")
+        || lower.ends_with(".css")
+        || lower.ends_with(".map")
+        || lower.ends_with(".png")
+        || lower.ends_with(".jpg")
+        || lower.ends_with(".jpeg")
+        || lower.ends_with(".gif")
+        || lower.ends_with(".svg")
+        || lower.ends_with(".ico")
+        || lower.ends_with(".webp")
+        || lower.ends_with(".woff")
+        || lower.ends_with(".woff2")
+        || lower.ends_with(".ttf")
+        || lower.ends_with(".eot")
+        || lower.ends_with(".wasm")
+}
+
+fn response_allows_shared_cache(headers: &HeaderMap) -> bool {
+    if headers.get("set-cookie").is_some() {
+        return false;
+    }
+    if let Some(cc) = headers.get("cache-control").and_then(|v| v.to_str().ok()) {
+        let cc = cc.to_ascii_lowercase();
+        if cc.contains("no-store") || cc.contains("private") || cc.contains("no-cache") {
+            return false;
+        }
+    }
+    true
+}
+
+fn is_hop_by_hop_header(name: &str) -> bool {
+    matches!(
+        name,
+        "host" | "content-length" | "transfer-encoding" | "connection"
+            | "keep-alive" | "te" | "trailer" | "upgrade" | "proxy-connection"
+    )
 }
 
 pub type UnixSocketClient = hyper_util::client::legacy::Client<hyperlocal::UnixConnector, http_body_util::Full<bytes::Bytes>>;
@@ -277,6 +316,12 @@ pub async fn proxy_handler(
                     &state.webp_converter,
                     best_format,
                 ).await)
+            } else if crate::webide_nls::is_nls_messages_path(&path_str) {
+                Ok(crate::webide_nls::translate_nls_response(
+                    response,
+                    &parts.headers,
+                )
+                .await)
             } else {
                 Ok(response)
             }
@@ -366,17 +411,27 @@ pub async fn proxy_request_streaming(
             Err(s) => s.as_u16(),
         };
         timer.finish(response_status);
+        state.metrics.record_git_operation();
+        let template = crate::hotpath::path_template(&path_str);
+        let result_label = if response_status >= 500 { "error" } else { "hit" };
+        let _ = state.metrics.record_hotpath(
+            &template,
+            result_label,
+            duration as f64 / 1000.0,
+        );
         tracing::info!(
             method = %method_str,
             path = %path_str,
+            path_template = %template,
             status = response_status,
+            result = result_label,
             duration_ms = duration,
             "Git smart HTTP completed"
         );
         return result;
     }
 
-    let cache_key = if method == Method::GET {
+    let cache_key = if should_cache_response(&method, uri.path()) {
         Some(generate_cache_key(&method, &uri))
     } else {
         None
@@ -599,7 +654,10 @@ async fn process_response_pipeline(
     }
 
     if let Some(ref cache) = state.cache {
-        if *method == Method::GET && status.is_success() {
+        if should_cache_response(method, uri.path())
+            && status.is_success()
+            && response_allows_shared_cache(&filtered)
+        {
             let content_type = filtered
                 .get("content-type")
                 .and_then(|v| v.to_str().ok())
@@ -632,7 +690,7 @@ async fn process_response_pipeline(
         filtered.insert("etag", etag.parse().unwrap());
     }
 
-    if *method == Method::GET && status.is_success() {
+    if *method == Method::GET && status.is_success() && !crate::webide_nls::is_nls_messages_path(uri.path()) {
         if let Some(if_none_match) = request_headers.get("if-none-match") {
             if let Some(etag) = filtered.get("etag") {
                 if let (Ok(client_etag), Ok(server_etag)) = (if_none_match.to_str(), etag.to_str()) {
@@ -739,6 +797,25 @@ async fn proxy_via_tcp(
     }
 }
 
+const UNIX_PROXY_TIMEOUT: Duration = Duration::from_secs(30);
+
+async fn unix_client_request(
+    client: &UnixSocketClient,
+    req: hyper::Request<http_body_util::Full<Bytes>>,
+) -> Result<hyper::Response<hyper::body::Incoming>, StatusCode> {
+    match tokio::time::timeout(UNIX_PROXY_TIMEOUT, client.request(req.into())).await {
+        Ok(Ok(resp)) => Ok(resp),
+        Ok(Err(e)) => {
+            tracing::error!("Unix socket proxy error: {}", e);
+            Err(StatusCode::BAD_GATEWAY)
+        }
+        Err(_) => {
+            tracing::error!("Unix socket proxy timeout after {:?}", UNIX_PROXY_TIMEOUT);
+            Err(StatusCode::GATEWAY_TIMEOUT)
+        }
+    }
+}
+
 async fn proxy_via_unix_socket(
     state: &AppState,
     method: Method,
@@ -759,10 +836,11 @@ async fn proxy_via_unix_socket(
         .uri(&unix_uri);
 
     for (key, value) in headers.iter() {
+        if is_hop_by_hop_header(key.as_str()) {
+            continue;
+        }
         if let Ok(v) = value.to_str() {
-            if key != "host" {
-                request = request.header(key.as_str(), v);
-            }
+            request = request.header(key.as_str(), v);
         }
     }
 
@@ -795,10 +873,7 @@ async fn proxy_via_unix_socket(
         .body(req_body)
         .map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let resp = state.unix_client.request(req.into()).await.map_err(|e| {
-        tracing::error!("Unix socket proxy error: {}", e);
-        StatusCode::BAD_GATEWAY
-    })?;
+    let resp = unix_client_request(&state.unix_client, req).await?;
 
     let resp_status = resp.status().as_u16();
     tracing::info!(
@@ -952,6 +1027,32 @@ fn is_git_smart_http(path: &str) -> bool {
         || path.ends_with("/git-receive-pack"))
 }
 
+const GIT_UPLOAD_PACK_REQUEST_MAX: usize = 16 * 1024 * 1024;
+
+fn git_status_error(
+    status: StatusCode,
+    class: &'static str,
+    path: &str,
+    err: impl std::fmt::Display,
+) -> StatusCode {
+    tracing::error!(
+        error_class = class,
+        path = %path,
+        status = status.as_u16(),
+        error = %err,
+        "Git smart HTTP failed"
+    );
+    status
+}
+
+fn body_to_io_stream(
+    body: Body,
+) -> impl futures_util::Stream<Item = Result<Bytes, std::io::Error>> {
+    body.into_data_stream().map(|chunk| {
+        chunk.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+    })
+}
+
 fn looks_like_git_pktline(body: &[u8]) -> bool {
     body.len() >= 4
         && body[..4].iter().all(|b| b.is_ascii_hexdigit())
@@ -1013,13 +1114,26 @@ async fn handle_git_smart_http(
 ) -> Result<Response, StatusCode> {
     let path = uri.path().to_string();
     let query = uri.query().unwrap_or("").to_string();
-    let pack_body = if matches!(method, Method::POST | Method::PUT | Method::PATCH) {
-        body.collect().await.map_err(|e| {
-            tracing::error!("Git smart HTTP body read failed: {}", e);
-            StatusCode::BAD_REQUEST
-        })?.to_bytes()
+    let receive_pack = path.ends_with("/git-receive-pack");
+    let (pack_body, receive_body) = if receive_pack {
+        (Bytes::new(), Some(body))
+    } else if matches!(method, Method::POST | Method::PUT | Method::PATCH) {
+        let bytes = body
+            .collect()
+            .await
+            .map_err(|e| git_status_error(StatusCode::BAD_REQUEST, "body_read", &path, e))?
+            .to_bytes();
+        if bytes.len() > GIT_UPLOAD_PACK_REQUEST_MAX {
+            return Err(git_status_error(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "upload_pack_request_too_large",
+                &path,
+                bytes.len(),
+            ));
+        }
+        (bytes, None)
     } else {
-        Bytes::new()
+        (Bytes::new(), None)
     };
 
     let (status, auth_headers, auth_body) =
@@ -1034,33 +1148,41 @@ async fn handle_git_smart_http(
     }
 
     if !workhorse_json_content_type(&auth_headers) {
-        tracing::error!("Git authorize returned non-JSON success for {}", path);
-        return Err(StatusCode::BAD_GATEWAY);
+        return Err(git_status_error(
+            StatusCode::BAD_GATEWAY,
+            "authorize_non_json",
+            &path,
+            "success response was not JSON",
+        ));
     }
 
     let auth: crate::api::Response = serde_json::from_slice(&auth_body).map_err(|e| {
-        tracing::error!("Git authorize JSON decode failed: {}", e);
-        StatusCode::BAD_GATEWAY
+        git_status_error(StatusCode::BAD_GATEWAY, "json_decode", &path, e)
     })?;
 
     let Some((server, repo)) = repo_from_auth(&auth) else {
         let gs = auth.gitaly_server.as_ref();
         let repo = auth.repository.as_ref();
-        tracing::error!(
-            "Git authorize JSON missing GitalyServer/Repository fields addr={} token={} storage={} relpath={} glrepo={}",
-            gs.map(|s| s.address.len()).unwrap_or(0),
-            gs.map(|s| s.token.len()).unwrap_or(0),
-            repo.map(|r| r.storage_name.len()).unwrap_or(0),
-            repo.map(|r| r.relative_path.len()).unwrap_or(0),
-            auth.gl_repository
-        );
-        return Err(StatusCode::BAD_GATEWAY);
+        return Err(git_status_error(
+            StatusCode::BAD_GATEWAY,
+            "missing_repo_fields",
+            &path,
+            format!(
+                "addr={} token={} storage={} relpath={} glrepo={}",
+                gs.map(|s| s.address.len()).unwrap_or(0),
+                gs.map(|s| s.token.len()).unwrap_or(0),
+                repo.map(|r| r.storage_name.len()).unwrap_or(0),
+                repo.map(|r| r.relative_path.len()).unwrap_or(0),
+                auth.gl_repository
+            ),
+        ));
     };
 
     serve_git_from_gitaly(
         &path,
         &query,
         pack_body.to_vec(),
+        receive_body,
         server,
         repo,
         &auth.gl_id,
@@ -1133,10 +1255,30 @@ async fn git_pre_authorize_unix(
         .body(http_body_util::Full::new(Bytes::new()))
         .map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let resp = state.unix_client.request(req.into()).await.map_err(|e| {
-        tracing::error!("Git authorize unix error: {}", e);
-        StatusCode::BAD_GATEWAY
-    })?;
+    let resp = match tokio::time::timeout(
+        UNIX_PROXY_TIMEOUT,
+        state.unix_client.request(req.into()),
+    )
+    .await
+    {
+        Ok(Ok(resp)) => resp,
+        Ok(Err(e)) => {
+            return Err(git_status_error(
+                StatusCode::BAD_GATEWAY,
+                "authorize_unix",
+                uri.path(),
+                e,
+            ));
+        }
+        Err(_) => {
+            return Err(git_status_error(
+                StatusCode::GATEWAY_TIMEOUT,
+                "authorize_unix_timeout",
+                uri.path(),
+                "timeout",
+            ));
+        }
+    };
 
     let status = StatusCode::from_u16(resp.status().as_u16())
         .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
@@ -1151,8 +1293,7 @@ async fn git_pre_authorize_unix(
         }
     }
     let body = resp.into_body().collect().await.map_err(|e| {
-        tracing::error!("Git authorize unix body error: {}", e);
-        StatusCode::BAD_GATEWAY
+        git_status_error(StatusCode::BAD_GATEWAY, "authorize_unix_body", uri.path(), e)
     })?.to_bytes();
     Ok((status, response_headers, body))
 }
@@ -1185,8 +1326,7 @@ async fn git_pre_authorize_tcp(
     request = request.body(Vec::<u8>::new());
 
     let response = request.send().await.map_err(|e| {
-        tracing::error!("Git authorize tcp error: {}", e);
-        StatusCode::BAD_GATEWAY
+        git_status_error(StatusCode::BAD_GATEWAY, "authorize_tcp", uri.path(), e)
     })?;
     let status = StatusCode::from_u16(response.status().as_u16())
         .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
@@ -1230,14 +1370,14 @@ async fn serve_git_from_gitaly(
     path: &str,
     query: &str,
     pack_body: Vec<u8>,
+    receive_body: Option<Body>,
     server: gitaly::GitalyServer,
     repo: gitaly::RepoInfo,
     gl_id: &str,
     gl_username: &str,
 ) -> Result<Response, StatusCode> {
     let mut client = gitaly::GitalyClient::connect(&server).await.map_err(|e| {
-        tracing::error!("Gitaly connect failed: {}", e);
-        StatusCode::BAD_GATEWAY
+        git_status_error(StatusCode::BAD_GATEWAY, "gitaly_connect", path, e)
     })?;
 
     if path.ends_with("/info/refs") {
@@ -1249,8 +1389,7 @@ async fn serve_git_from_gitaly(
         match result {
             Ok(refs_data) => git_protocol_response(path, query, Bytes::from(refs_data)),
             Err(e) => {
-                tracing::error!("Gitaly info_refs failed: {}", e);
-                Err(StatusCode::BAD_GATEWAY)
+                Err(git_status_error(StatusCode::BAD_GATEWAY, "gitaly_info_refs", path, e))
             }
         }
     } else if path.ends_with("/git-upload-pack") {
@@ -1265,20 +1404,24 @@ async fn serve_git_from_gitaly(
                 Ok((StatusCode::OK, headers, Body::from_stream(pack_stream)).into_response())
             }
             Err(e) => {
-                tracing::error!("Gitaly post_upload_pack failed: {}", e);
-                Err(StatusCode::BAD_GATEWAY)
+                Err(git_status_error(StatusCode::BAD_GATEWAY, "gitaly_upload_pack", path, e))
             }
         }
     } else if path.ends_with("/git-receive-pack") {
-        match client
-            .post_receive_pack(&repo, pack_body, gl_id, gl_username)
-            .await
-        {
-            Ok(data) => git_protocol_response(path, query, Bytes::from(data)),
-            Err(e) => {
-                tracing::error!("Gitaly post_receive_pack failed: {}", e);
-                Err(StatusCode::BAD_GATEWAY)
+        let stream = body_to_io_stream(receive_body.unwrap_or_else(|| Body::from(pack_body)));
+        match client.post_receive_pack(&repo, stream, gl_id, gl_username).await {
+            Ok(pack_stream) => {
+                let mut headers = HeaderMap::new();
+                headers.insert("content-type", git_content_type(path, query).parse().unwrap());
+                headers.insert("cache-control", "no-cache".parse().unwrap());
+                Ok((StatusCode::OK, headers, Body::from_stream(pack_stream)).into_response())
             }
+            Err(e) => Err(git_status_error(
+                StatusCode::BAD_GATEWAY,
+                "gitaly_receive_pack",
+                path,
+                e,
+            )),
         }
     } else {
         Err(StatusCode::NOT_FOUND)
@@ -1481,15 +1624,6 @@ async fn proxy_via_gitaly(
             }
         }
     } else if path.ends_with("/git-receive-pack") {
-        let body_bytes = body.into_data_stream()
-            .fold(Vec::new(), |mut acc, chunk| async move {
-                if let Ok(data) = chunk {
-                    acc.extend_from_slice(&data);
-                }
-                acc
-            })
-            .await;
-
         let gl_id = headers
             .get("gitlab-workhorse-gl-id")
             .and_then(|v| v.to_str().ok())
@@ -1500,15 +1634,23 @@ async fn proxy_via_gitaly(
             .and_then(|v| v.to_str().ok())
             .unwrap_or("root")
             .to_string();
-        match client.post_receive_pack(&repo, body_bytes, &gl_id, &gl_username).await {
-            Ok(data) => {
+        match client
+            .post_receive_pack(&repo, body_to_io_stream(body), &gl_id, &gl_username)
+            .await
+        {
+            Ok(pack_stream) => {
                 let mut response_headers = HeaderMap::new();
                 response_headers.insert(
                     "content-type",
                     "application/x-git-receive-pack-result".parse().unwrap(),
                 );
                 response_headers.insert("cache-control", "no-cache".parse().unwrap());
-                Ok((StatusCode::OK, response_headers, data).into_response())
+                Ok((
+                    StatusCode::OK,
+                    response_headers,
+                    Body::from_stream(pack_stream),
+                )
+                    .into_response())
             }
             Err(e) => {
                 tracing::error!("Gitaly post_receive_pack failed: {}", e);
@@ -1721,6 +1863,42 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("upgrade", HeaderValue::from_static("websocket"));
         assert!(!is_blocked_graphql_get_mutation(&Method::GET, &uri, &headers));
+    }
+
+    #[test]
+    fn test_skip_cache_for_graphql_and_api() {
+        assert!(!should_cache_response(&Method::GET, "/api/graphql"));
+        assert!(!should_cache_response(&Method::GET, "/api/v4/projects"));
+        assert!(!should_cache_response(&Method::POST, "/api/graphql"));
+        assert!(should_cache_response(&Method::GET, "/assets/app.js"));
+    }
+
+    #[test]
+    fn test_skip_cache_for_html_login_and_nls() {
+        assert!(!should_cache_response(&Method::GET, "/users/sign_in"));
+        assert!(!should_cache_response(&Method::GET, "/"));
+        assert!(!should_cache_response(
+            &Method::GET,
+            "/assets/webpack/vscode/out/nls.messages.js"
+        ));
+        assert!(should_cache_response(&Method::GET, "/assets/application.css"));
+    }
+
+    #[test]
+    fn test_response_allows_shared_cache() {
+        let mut headers = HeaderMap::new();
+        headers.insert("cache-control", HeaderValue::from_static("public, max-age=3600"));
+        assert!(response_allows_shared_cache(&headers));
+
+        headers.insert(
+            "cache-control",
+            HeaderValue::from_static("max-age=0, private, must-revalidate"),
+        );
+        assert!(!response_allows_shared_cache(&headers));
+
+        let mut cookie_headers = HeaderMap::new();
+        cookie_headers.insert("set-cookie", HeaderValue::from_static("_gitlab_session=abc"));
+        assert!(!response_allows_shared_cache(&cookie_headers));
     }
 
     #[test]

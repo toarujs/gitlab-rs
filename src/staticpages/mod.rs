@@ -32,6 +32,10 @@ impl StaticPagesState {
     }
 }
 
+async fn maybe_translate_nls(path: &str, headers: &HeaderMap, response: Response) -> Response {
+    crate::webide_nls::maybe_translate_nls_response(path, headers, response).await
+}
+
 pub async fn serve_static_file(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -94,6 +98,7 @@ pub async fn serve_static_file(
     }
 
     if let Some(comp_ref) = resources.compressions.first() {
+        if !crate::webide_nls::is_nls_messages_path(&path) {
         let content = compression::read_file_to_bytes(&comp_ref.path).await.map_err(|e| {
             tracing::error!("Failed to read compressed file: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
@@ -106,7 +111,9 @@ pub async fn serve_static_file(
         response_headers.insert("cache-control", cache_control.parse().unwrap());
         response_headers.insert("vary", "Accept-Encoding".parse().unwrap());
 
-        return Ok((StatusCode::OK, response_headers, Body::from(content)).into_response());
+        let response = (StatusCode::OK, response_headers, Body::from(content)).into_response();
+        return Ok(maybe_translate_nls(&path, &headers, response).await);
+        }
     }
 
     let file = tokio::fs::File::open(resources.original_path.as_ref().unwrap()).await.map_err(|e| {
@@ -123,7 +130,8 @@ pub async fn serve_static_file(
     response_headers.insert("cache-control", cache_control.parse().unwrap());
     response_headers.insert("vary", "Accept-Encoding".parse().unwrap());
 
-    Ok((StatusCode::OK, response_headers, body).into_response())
+    let response = (StatusCode::OK, response_headers, body).into_response();
+    Ok(maybe_translate_nls(&path, &headers, response).await)
 }
 
 /// Serve static files from public/-/<path> (e.g., /-/emojis, /-/pwa-icons).

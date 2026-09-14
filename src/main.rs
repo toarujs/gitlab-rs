@@ -37,6 +37,7 @@ mod gob;
 mod headers;
 mod health;
 mod html_injection;
+mod webide_nls;
 mod hotpath;
 mod imageresizer;
 mod loadshedding;
@@ -145,7 +146,7 @@ struct Cli {
     api_queue_timeout: String,
 
     /// CI long polling duration
-    #[arg(long, default_value = "50ms")]
+    #[arg(long, default_value = "50s")]
     api_ci_long_polling_duration: String,
 
     /// TOML config file path
@@ -423,7 +424,18 @@ async fn main() -> anyhow::Result<()> {
         api_limit * 10
     };
 
-    let app_state = AppState {
+    let ci_long_polling = match parse_duration(&cli.api_ci_long_polling_duration) {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!(
+                "invalid --api-ci-long-polling-duration {}: {e}, using 50s",
+                cli.api_ci_long_polling_duration
+            );
+            Duration::from_secs(50)
+        }
+    };
+
+    let mut app_state = AppState {
         proxy: proxy::ProxyState {
             backend_url,
             client: proxy_client,
@@ -476,12 +488,35 @@ async fn main() -> anyhow::Result<()> {
         )),
         unix_client: Arc::new(
             hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
-                .pool_idle_timeout(Duration::from_secs(90))
-                .pool_max_idle_per_host(10)
+                .pool_idle_timeout(Duration::from_secs(5))
+                .pool_max_idle_per_host(0)
                 .build(hyperlocal::UnixConnector)
         ),
         hotpath: hotpath::HotPathState::from_env(),
+        redis: None,
+        ci_long_polling,
     };
+
+    if let Some(url) = app_state.hotpath.redis_url.clone() {
+        let client = redis::RedisClient::new(url.clone());
+        match client.connect().await {
+            Ok(()) => {
+                tracing::info!(
+                    redis = %url,
+                    duration = ?ci_long_polling,
+                    "CI long polling enabled"
+                );
+                app_state.redis = Some(client);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    redis = %url,
+                    error = %e,
+                    "CI long polling redis unavailable, jobs/request will proxy"
+                );
+            }
+        }
+    }
 
     let app = Router::new()
         // Health & version endpoints
@@ -808,7 +843,13 @@ async fn main() -> anyhow::Result<()> {
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
                 .layer(CorsLayer::permissive())
-                .layer(CompressionLayer::new().br(true).zstd(true)),
+                .layer(
+                    CompressionLayer::new()
+                        .br(true)
+                        .zstd(true)
+                        .compress_when(compression::GitPackSkipPredicate::new()),
+                )
+                .layer(middleware::from_fn(compression::mark_git_pack_skip_compress)),
         )
         .layer(middleware::from_fn(correlation::correlation_id_middleware))
         .layer(middleware::from_fn(rejectmethods::reject_methods_middleware))
