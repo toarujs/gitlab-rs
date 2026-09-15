@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_RANGE, CONTENT_TYPE};
 use reqwest::StatusCode;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
 
 use crate::{RUNNER_REVISION, RUNNER_VERSION};
@@ -68,47 +68,61 @@ impl Default for RunnerFeatures {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct JobResponse {
     pub id: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub token: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub job_info: JobInfo,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub git_info: GitInfo,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub runner_info: RunnerInfo,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub variables: Vec<JobVariable>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub steps: Vec<Step>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub image: Image,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub services: Vec<Image>,
+}
+
+/// Treat an explicit JSON `null` the same as a missing field, falling back to
+/// `T::default()`.
+///
+/// GitLab's runner register payload sends `null` (not a missing key) for
+/// optional sub-objects such as `image` and scalars such as
+/// `runner_info.timeout`, which plain `#[serde(default)]` cannot handle.
+pub(crate) fn null_to_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct JobInfo {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub stage: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub project_id: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub project_name: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct GitInfo {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub repo_url: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub ref_name: String,
-    #[serde(default, rename = "ref")]
+    #[serde(default, rename = "ref", deserialize_with = "null_to_default")]
     pub git_ref: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub sha: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub before_sha: String,
 }
 
@@ -124,51 +138,51 @@ impl GitInfo {
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct RunnerInfo {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub timeout: i64,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct JobVariable {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub key: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub value: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub public: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub internal: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub file: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub masked: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub raw: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Step {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub script: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub timeout: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub when: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub allow_failure: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Image {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub name: String,
-    #[serde(default, rename = "alias")]
+    #[serde(default, rename = "alias", deserialize_with = "null_to_default")]
     pub alias_name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub command: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub entrypoint: Vec<String>,
 }
 
@@ -351,5 +365,30 @@ mod tests {
     fn job_request_timeout_exceeds_50s_poll() {
         assert!(JOB_REQUEST_TIMEOUT > std::time::Duration::from_secs(50));
         assert_eq!(JOB_REQUEST_TIMEOUT, std::time::Duration::from_secs(70));
+    }
+
+    #[test]
+    fn decodes_null_optional_fields() {
+        // GitLab sends explicit nulls for absent optional values.
+        let payload = r#"{
+            "id": 7,
+            "token": "jobtoken",
+            "image": null,
+            "services": null,
+            "variables": null,
+            "steps": null,
+            "job_info": null,
+            "git_info": {"repo_url": "http://web/g/p.git", "ref": "main", "sha": null},
+            "runner_info": {"timeout": null},
+            "entrypoint": null
+        }"#;
+        let job: JobResponse = serde_json::from_str(payload).expect("decode null-tolerant job");
+        assert_eq!(job.id, 7);
+        assert_eq!(job.token, "jobtoken");
+        assert!(job.services.is_empty());
+        assert!(job.image.entrypoint.is_empty());
+        assert_eq!(job.runner_info.timeout, 0);
+        assert_eq!(job.git_info.sha, "");
+        assert_eq!(job.git_info.refspec(), "main");
     }
 }

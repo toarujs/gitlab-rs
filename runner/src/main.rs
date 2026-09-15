@@ -149,7 +149,7 @@ async fn main() -> Result<()> {
                         error!("runner token rejected, exiting");
                         std::process::exit(1);
                     }
-                    warn!(error = %err, "job request failed");
+                    warn!(error = ?err, "job request failed");
                 }
             }
         }
