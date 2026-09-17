@@ -1,7 +1,7 @@
  # Rails / Puma 热点加速
 
  Feature Name: rails-puma-accelerate
- Updated: 2026-09-08
+ Updated: 2026-09-10
 
  ## Description
 
@@ -98,6 +98,8 @@
  | Gitaly 超时 | 回源 Puma；若回源也失败，返回 Puma 状态码 |
  | 文件超过内存上限 | 流式发送或回源，禁止整包读入 |
  | panic | catch 后回源；回源失败则 502 |
+ | Git 授权 JSON 字段为 null | 当空字符串/空 map，继续 Gitaly |
+ | Git 502 | 日志带 `error_class`（json_decode / missing_repo_fields / gitaly_connect / sidechannel 等），响应体不回传 Workhorse JSON |
 
  ## Test Strategy
 

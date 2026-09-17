@@ -130,14 +130,29 @@ pub async fn intercept_send_data(
     };
 
     let fake_headers = HeaderMap::new();
+    // Go workhorse copies the Rails response headers onto the client response
+    // before invoking the send-data handler, so the handler only writes the body.
+    // Mirror that: start from the sanitized upstream headers and let the injector
+    // override (e.g. content-length, and content-type for archives).
+    let base_headers = crate::forwardheaders::forward_response_headers(headers, None, &[]);
     match (injecter.inject)(json_data, fake_headers).await {
-        Ok(response) => Some(response),
+        Ok(response) => Some(merge_injected_response(response, base_headers)),
         Err(_) => {
             let mut error_headers = HeaderMap::new();
             error_headers.insert("content-type", "text/plain".parse().unwrap());
             Some((StatusCode::INTERNAL_SERVER_ERROR, error_headers, "senddata injection failed").into_response())
         }
     }
+}
+
+fn merge_injected_response(response: Response, base_headers: HeaderMap) -> Response {
+    let (mut parts, body) = response.into_parts();
+    let mut merged = base_headers;
+    for (key, value) in parts.headers.iter() {
+        merged.insert(key.clone(), value.clone());
+    }
+    parts.headers = merged;
+    Response::from_parts(parts, body)
 }
 
 #[cfg(test)]

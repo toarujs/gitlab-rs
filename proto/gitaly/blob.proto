@@ -14,8 +14,8 @@ message GetBlobRequest {
 
 message GetBlobResponse {
   int64 size = 1;
-  string oid = 2;
-  bytes data = 3;
+  bytes data = 2;
+  string oid = 3;
   bool is_binary = 4;
 }
 

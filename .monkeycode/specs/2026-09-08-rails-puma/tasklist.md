@@ -31,3 +31,12 @@
 
 - [x] 6. 检查点 - 确保所有测试通过
   - 确保所有测试通过,如有疑问请询问用户
+
+- [x] 7. Git smart HTTP 可观测与流式
+  - `path_template` 把 `.git/info/refs|git-upload-pack|git-receive-pack` 收成 `/:namespace/:project.git/...`
+  - 成功计 `hit`，5xx 计 `error`；502 日志带 `error_class`
+  - `call_metadata` / `git_alternate_object_directories` 的 JSON null 当空
+  - receive-pack 请求与响应走 stream，不再整包 `Vec`
+  - upload-pack 请求体上限 16MB
+  - 对应 R8、R1、R6
+  - [x] 7.1 path_template 与 null JSON 单元测试

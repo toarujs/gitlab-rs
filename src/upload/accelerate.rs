@@ -6,7 +6,7 @@ use axum::{
 };
 use sha1::{Digest, Sha1};
 use sha2::{Sha256, Sha512};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
@@ -15,18 +15,49 @@ use crate::secret::Secret;
 use crate::state::AppState;
 
 const MAX_FILES: usize = 10;
-const WORKHORSE_TMP: &str = "/var/opt/gitlab/gitlab-rails/shared/artifacts/tmp/uploads";
+const ARTIFACTS_TMP: &str = "/var/opt/gitlab/gitlab-rails/shared/artifacts/tmp/uploads";
+/// Upload temp directory backing `Packages::PackageFileUploader.workhorse_upload_path`,
+/// which Rails lists in `Gitlab::Middleware::Multipart#allowed_paths`.
+pub(crate) const PACKAGES_TMP: &str = "/var/opt/gitlab/gitlab-rails/shared/packages/tmp/uploads";
 
 pub async fn accelerate_multipart_request(
+    state: AppState,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    multipart: Multipart,
+    max_size: u64,
+) -> Response {
+    accelerate_multipart_request_to(state, method, uri, headers, multipart, max_size, Path::new(ARTIFACTS_TMP)).await
+}
+
+/// Multipart upload acceleration for package repositories (NuGet, PyPI, Helm).
+///
+/// Upstream Workhorse routes these through its *mime multipart* uploader: file
+/// parts are saved to a temp path and replaced with `<field>.<attr>` form
+/// fields plus a signed `<field>.gitlab-workhorse-upload` JWT. Ruby only accepts
+/// the upload once that rewrite happened, so a plain proxy answers 400.
+pub async fn accelerate_package_multipart_request(
+    state: AppState,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    multipart: Multipart,
+    max_size: u64,
+) -> Response {
+    accelerate_multipart_request_to(state, method, uri, headers, multipart, max_size, Path::new(PACKAGES_TMP)).await
+}
+
+async fn accelerate_multipart_request_to(
     state: AppState,
     method: Method,
     uri: Uri,
     mut headers: HeaderMap,
     multipart: Multipart,
     max_size: u64,
+    tmp_dir: &Path,
 ) -> Response {
-    let tmp_dir = PathBuf::from(WORKHORSE_TMP);
-    let rewritten = match rewrite_multipart(&state.secret, &tmp_dir, max_size, multipart).await {
+    let rewritten = match rewrite_multipart(&state.secret, tmp_dir, max_size, multipart).await {
         Ok(body) => body,
         Err(status) => {
             tracing::error!(status = %status, path = %uri.path(), "Artifact upload accelerate failed");

@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 pub mod accelerate;
+pub mod request_body;
 
 use axum::{
     Json,

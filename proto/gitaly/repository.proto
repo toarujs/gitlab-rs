@@ -9,11 +9,19 @@ import "gitaly/smarthttp.proto";
 message GetArchiveRequest {
   Repository repository = 1;
   string commit_id = 2;
-  string format = 3;
-  string path = 4;
-  bytes exclude = 5;
-  string prefix = 6;
-  int32 elide_path = 7;
+  string prefix = 3;
+  Format format = 4;
+  bytes path = 5;
+  repeated bytes exclude = 6;
+  bool elide_path = 7;
+  bool include_lfs_blobs = 8;
+
+  enum Format {
+    ZIP = 0;
+    TAR = 1;
+    TAR_GZ = 2;
+    TAR_BZ2 = 3;
+  }
 }
 
 message GetArchiveResponse {

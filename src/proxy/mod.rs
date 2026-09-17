@@ -399,6 +399,27 @@ pub async fn proxy_request_streaming(
         }
     }
 
+    // Git LFS object uploads use Workhorse's request-body uploader: buffer the
+    // raw payload to a temp file, then hand Rails a signed form body. Rails'
+    // `upload_finalize` reads `params[:file]`, which stays nil for a raw body,
+    // so an unaccelerated upload is answered with 422.
+    if method == Method::PUT && is_lfs_upload_path(uri.path()) && is_octet_stream(&headers) {
+        let lfs_path = uri.path().to_string();
+        let response = crate::upload::request_body::accelerate_request_body(
+            state.clone(),
+            method,
+            uri,
+            headers,
+            body,
+        )
+        .await;
+        let status = response.status().as_u16();
+        state.metrics.record_request_duration(timer.elapsed_ms() as f64 / 1000.0);
+        timer.finish(status);
+        tracing::info!(path = %lfs_path, status, "Git LFS upload accelerated");
+        return Ok(response);
+    }
+
     // Only generate cache key for GET requests (memoizable)
     if is_git_smart_http(uri.path()) {
         let method_str = method.as_str().to_string();
@@ -476,16 +497,21 @@ pub async fn proxy_request_streaming(
     let metrics = state.metrics.clone();
     let method_str = method.as_str().to_string();
     let path_str = uri.path().to_string();
+    // LFS traffic (batch and object upload/download) is served by Rails, exactly
+    // like Workhorse's `git_lfs_objects` route, so it must never go to Gitaly.
+    let is_lfs = is_lfs_path(&path_str);
     let used_gitaly = is_git_url(&path_str)
+        && !is_lfs
         && state.git.gitaly_address.is_some()
         && state.git.gitaly_token.is_some();
     let used_git_backend = is_git_url(&path_str)
+        && !is_lfs
         && !used_gitaly
         && state.proxy.git_backend_url.is_some();
     let via_puma = !used_gitaly && !used_git_backend;
     let backend_started = std::time::Instant::now();
     // Check for git URLs FIRST — route to Gitaly or Go sidecar
-    let result = if is_git_url(&path_str) {
+    let result = if is_git_url(&path_str) && !is_lfs {
         if let (Some(gitaly_addr), Some(gitaly_token)) = (&state.git.gitaly_address, &state.git.gitaly_token) {
             proxy_via_gitaly(&state, method, uri, headers, body, gitaly_addr, gitaly_token).await
         } else if let Some(ref git_backend) = state.proxy.git_backend_url {
@@ -634,15 +660,14 @@ async fn process_response_pipeline(
         body_bytes
     };
 
-    if let Ok(body_text) = std::str::from_utf8(&body_bytes) {
-        if let Some(inject_response) = senddata::intercept_send_data(
-            status,
-            &filtered,
-            body_text,
-            &state.injecters,
-        ).await {
-            return Ok(inject_response);
-        }
+    // Send-data injection must inspect the *original* upstream headers: `filtered`
+    // has `gitlab-workhorse-send-data` stripped by `forward_response_headers`.
+    // Rails answers these requests with an empty body and lets workhorse serve the
+    // content, so this must not depend on the body being valid UTF-8.
+    if let Some(inject_response) =
+        senddata::intercept_send_data(status, response_headers, "", &state.injecters).await
+    {
+        return Ok(inject_response);
     }
 
     if is_internal_workhorse_json(&filtered) {
@@ -712,6 +737,19 @@ async fn proxy_via_tcp(
     headers: HeaderMap,
     body: Body,
 ) -> Result<Response, StatusCode> {
+    let (status, response_headers, resp_body) =
+        upstream_tcp_raw(state, &method, &uri, &headers, body).await?;
+    process_response_pipeline(state, &method, &uri, &headers, status, &response_headers, resp_body).await
+}
+
+/// Send a request to the Rails backend over TCP and return the raw response.
+async fn upstream_tcp_raw(
+    state: &AppState,
+    method: &Method,
+    uri: &Uri,
+    headers: &HeaderMap,
+    body: Body,
+) -> Result<(StatusCode, HeaderMap, Bytes), StatusCode> {
     // Use path_and_query to preserve query parameters
     let path_and_query = uri.path_and_query()
         .map(|pq| pq.as_str())
@@ -731,7 +769,7 @@ async fn proxy_via_tcp(
     let mut request = state.proxy.client.request(method.clone(), &backend_url);
 
     // Forward headers (filter out hop-by-hop headers)
-    let mut filtered_headers = forwardheaders::forward_request_headers(&headers, &state.proxy.backend_url);
+    let mut filtered_headers = forwardheaders::forward_request_headers(headers, &state.proxy.backend_url);
     filtered_headers.insert("X-Forwarded-Proto", HeaderValue::from_static("https"));
     for (key, value) in filtered_headers.iter() {
         request = request.header(key.as_str(), value.to_str().unwrap_or(""));
@@ -746,7 +784,7 @@ async fn proxy_via_tcp(
     }
 
     // Stream body for methods that support it
-    if matches!(method, Method::POST | Method::PUT | Method::PATCH) {
+    if matches!(method.as_str(), "POST" | "PUT" | "PATCH") {
         let byte_stream = body.into_data_stream()
             .map(|r| r.map_err(|e| -> std::io::Error { std::io::Error::new(std::io::ErrorKind::Other, e.to_string()) }));
         request = request.body(reqwest::Body::wrap_stream(byte_stream));
@@ -776,7 +814,7 @@ async fn proxy_via_tcp(
             // Read response body as bytes (preserves binary data)
             let resp_body = response.bytes().await.unwrap_or_default();
 
-            return process_response_pipeline(state, &method, &uri, &headers, status, &response_headers, resp_body).await;
+            Ok((status, response_headers, resp_body))
         }
         Err(e) => {
             tracing::error!("Proxy error: {}", e);
@@ -824,6 +862,22 @@ async fn proxy_via_unix_socket(
     body: Body,
     socket_path: &str,
 ) -> Result<Response, StatusCode> {
+    let (status, response_headers, body_bytes) =
+        upstream_unix_raw(state, &method, &uri, &headers, body, socket_path).await?;
+    process_response_pipeline(state, &method, &uri, &headers, status, &response_headers, body_bytes).await
+}
+
+/// Send a request to the Rails backend over a unix socket and return the raw
+/// response. Used both by the normal proxy path and by upload acceleration,
+/// which has to read Rails' workhorse pre-authorization JSON directly.
+async fn upstream_unix_raw(
+    state: &AppState,
+    method: &Method,
+    uri: &Uri,
+    headers: &HeaderMap,
+    body: Body,
+    socket_path: &str,
+) -> Result<(StatusCode, HeaderMap, Bytes), StatusCode> {
     let path = uri.path_and_query()
         .map(|pq| pq.as_str())
         .unwrap_or("/");
@@ -919,7 +973,25 @@ async fn proxy_via_unix_socket(
         );
     }
 
-    process_response_pipeline(state, &method, &uri, &headers, status, &response_headers, body_bytes).await
+    Ok((status, response_headers, body_bytes))
+}
+
+/// Send a request straight to the Rails backend and return the raw response
+/// without the client-facing response pipeline. Upload acceleration uses this
+/// to consume Rails' `application/vnd.gitlab-workhorse+json` pre-authorization
+/// payload, which the normal pipeline deliberately refuses to leak to clients.
+pub async fn send_raw_upstream(
+    state: &AppState,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    body: Body,
+) -> Result<(StatusCode, HeaderMap, Bytes), StatusCode> {
+    if let Some(socket_path) = state.proxy.auth_socket.clone() {
+        upstream_unix_raw(state, &method, &uri, &headers, body, &socket_path).await
+    } else {
+        upstream_tcp_raw(state, &method, &uri, &headers, body).await
+    }
 }
 
 fn strip_secure_from_set_cookie(headers: &mut HeaderMap) {
@@ -1025,6 +1097,37 @@ fn is_git_smart_http(path: &str) -> bool {
         && (path.ends_with("/info/refs")
         || path.ends_with("/git-upload-pack")
         || path.ends_with("/git-receive-pack"))
+}
+
+/// Any Git LFS endpoint on a repository: the batch API (`info/lfs/...`) and the
+/// object storage API (`gitlab-lfs/objects/...`).
+fn is_lfs_path(path: &str) -> bool {
+    path.contains("/info/lfs/") || path.contains("/gitlab-lfs/")
+}
+
+/// The LFS object upload endpoint: `.../gitlab-lfs/objects/<64-hex-oid>/<size>`.
+fn is_lfs_upload_path(path: &str) -> bool {
+    if !is_git_url(path) || !path.contains("/gitlab-lfs/objects/") {
+        return false;
+    }
+    let mut segments = path.trim_end_matches('/').rsplit('/');
+    let Some(size) = segments.next() else {
+        return false;
+    };
+    let Some(oid) = segments.next() else {
+        return false;
+    };
+    !size.is_empty()
+        && size.bytes().all(|b| b.is_ascii_digit())
+        && oid.len() == 64
+        && oid.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+fn is_octet_stream(headers: &HeaderMap) -> bool {
+    headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("application/octet-stream"))
 }
 
 const GIT_UPLOAD_PACK_REQUEST_MAX: usize = 16 * 1024 * 1024;
@@ -1982,5 +2085,23 @@ mod tests {
             "application/vnd.gitlab-workhorse+json".parse().unwrap(),
         );
         assert!(is_internal_workhorse_json(&headers));
+    }
+
+    #[test]
+    fn test_lfs_paths_are_detected_and_never_gitaly_routed() {
+        let oid = "b3fc39d68311a9d79120ea7a0dcc71b7e05c303c76789370c3ccef27da0bd79b";
+        assert!(is_lfs_path("/group/repo.git/info/lfs/objects/batch"));
+        assert!(is_lfs_path(&format!("/group/repo.git/gitlab-lfs/objects/{}", oid)));
+        assert!(!is_lfs_path("/group/repo.git/info/refs"));
+    }
+
+    #[test]
+    fn test_is_lfs_upload_path_requires_oid_and_size() {
+        let oid = "b3fc39d68311a9d79120ea7a0dcc71b7e05c303c76789370c3ccef27da0bd79b";
+        assert!(is_lfs_upload_path(&format!("/g/r.git/gitlab-lfs/objects/{}/33", oid)));
+        // A download URL has no size segment.
+        assert!(!is_lfs_upload_path(&format!("/g/r.git/gitlab-lfs/objects/{}", oid)));
+        // The oid must be a 64-char hex digest.
+        assert!(!is_lfs_upload_path("/g/r.git/gitlab-lfs/objects/notahash/33"));
     }
 }

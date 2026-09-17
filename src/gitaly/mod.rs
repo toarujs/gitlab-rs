@@ -370,22 +370,13 @@ impl GitalyClient {
         Ok(ReceiverStream::new(out_rx))
     }
 
+    /// Stream an archive for an already-built `GetArchiveRequest` (as handed to us
+    /// by Rails in the `git-archive:` send-data payload).
     pub async fn get_archive(
         &mut self,
-        repo: &RepoInfo,
-        commit_id: &str,
-        format: &str,
-        prefix: &str,
-        path: &str,
+        request: GetArchiveRequest,
     ) -> Result<Vec<u8>, tonic::Status> {
-        let mut req = tonic::Request::new(GetArchiveRequest {
-            repository: Some(self.build_repo(repo)),
-            commit_id: commit_id.to_string(),
-            format: format.to_string(),
-            prefix: prefix.to_string(),
-            path: path.to_string(),
-            ..Default::default()
-        });
+        let mut req = tonic::Request::new(request);
         self.apply_auth(&mut req);
         let mut stream = self.repository.get_archive(req).await?.into_inner();
         let mut data = Vec::new();

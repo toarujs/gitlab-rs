@@ -84,3 +84,15 @@
 
  1. THE 系统 SHALL 以 GitLab CE 19.3.1 的 REST/Web 响应字段为加速路径的对照基线
  2. WHEN 官方 CE 小版本升级，THE 维护者 SHALL 用对照测试覆盖 R2、R3、R4 三条路径后再标记加速启用
+
+ ### R8: Git smart HTTP
+
+ **User Story:** AS 开发者，I want clone/fetch/push 由 Workhorse 直连 Gitaly，so that 大 pack 不进 Puma、也不整包进内存。
+
+ #### Acceptance Criteria
+
+ 1. WHEN 请求 `info/refs`、`git-upload-pack` 或 `git-receive-pack`，THE Workhorse SHALL 先向 Rails 做授权，再用授权 JSON 中的 Gitaly 地址传输 pack
+ 2. WHEN 授权 JSON 字段为 JSON null（含 `call_metadata` 与字符串字段），THE Workhorse SHALL 按空值继续，不因此返回 502
+ 3. WHEN `git-upload-pack` 响应或 `git-receive-pack` 请求/响应较大，THE Workhorse SHALL 流式读写，禁止整包 `Vec` 缓冲
+ 4. WHEN 该路径失败，THE Workhorse SHALL 记录 `error_class` 与路径模板，并计入 `gitlab_rs_hotpath_result_total{result="error"}`
+ 5. WHEN 该路径成功，THE Workhorse SHALL 计入 `result="hit"`，路径模板为 `/:namespace/:project.git/info/refs` 或对应 pack 路径

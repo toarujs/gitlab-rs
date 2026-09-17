@@ -1,10 +1,10 @@
 use axum::{
     Router,
     middleware,
-    routing::{get, post, put},
+    routing::{any, get, post, put},
 };
 use axum::body::Body;
-use axum::extract::{Path, State};
+use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::{HeaderMap, Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use clap::Parser;
@@ -541,7 +541,7 @@ async fn main() -> anyhow::Result<()> {
         // CI artifacts
         .route(
             "/api/v4/jobs/:job_id/artifacts",
-            post(routes::artifacts::handle_artifacts_upload),
+            post(routes::artifacts::handle_artifacts_upload).layer(DefaultBodyLimit::disable()),
         )
         .route(
             "/api/v4/jobs/:job_id/artifacts",
@@ -576,62 +576,75 @@ async fn main() -> anyhow::Result<()> {
             "/api/v4/projects/:project_id/terraform/state/:state_name/lock",
             post(routes::terraform::handle_terraform_state_lock).delete(routes::terraform::handle_terraform_state_unlock),
         )
-        // Package repositories
+        // Package repositories.
+        //
+        // These routes only exist to enforce the upload size limit, so every
+        // method must reach the handler: GitLab serves package downloads as
+        // GET requests on the very same paths. Registering just the upload
+        // verb makes Axum answer 405 for the rest, shadowing the catch-all
+        // proxy below and breaking downloads.
         .route(
             "/api/v4/projects/:project_id/packages/maven/*path",
-            put(routes::packages::handle_maven_upload),
+            any(routes::packages::handle_maven_upload),
         )
         .route(
             "/api/v4/projects/:project_id/packages/npm/-/package/:package/dist-tags/:tag",
-            put(routes::packages::handle_npm_upload),
+            any(routes::packages::handle_npm_dist_tags),
         )
         .route(
             "/api/v4/projects/:project_id/packages/npm/*path",
-            put(routes::packages::handle_npm_upload),
+            any(routes::packages::handle_npm_upload),
         )
         .route(
             "/api/v4/packages/conan/*path",
-            put(routes::packages::handle_conan_upload),
+            any(routes::packages::handle_conan_upload),
         )
         .route(
             "/api/v4/projects/:project_id/packages/conan/*path",
-            put(routes::packages::handle_conan_upload),
+            any(routes::packages::handle_conan_upload),
         )
         .route(
             "/api/v4/projects/:project_id/packages/generic/*path",
-            put(routes::packages::handle_generic_upload),
+            any(routes::packages::handle_generic_upload),
         )
         .route(
             "/api/v4/projects/:project_id/packages/ml_models/*path",
-            put(routes::packages::handle_ml_models_upload),
+            any(routes::packages::handle_ml_models_upload),
         )
         .route(
             "/api/v4/projects/:project_id/packages/nuget/*path",
-            put(routes::packages::handle_nuget_upload).post(routes::packages::handle_nuget_upload),
+            any(routes::packages::handle_nuget_upload).layer(DefaultBodyLimit::disable()),
+        )
+        // NuGet publishes to the bare collection URL `/packages/nuget/`, which
+        // the `*path` wildcard above cannot match because matchit requires at
+        // least one character for a catch-all segment.
+        .route(
+            "/api/v4/projects/:project_id/packages/nuget/",
+            any(routes::packages::handle_nuget_upload).layer(DefaultBodyLimit::disable()),
         )
         .route(
             "/api/v4/projects/:project_id/packages/pypi",
-            post(routes::packages::handle_pypi_upload),
+            any(routes::packages::handle_pypi_upload).layer(DefaultBodyLimit::disable()),
         )
         .route(
             "/api/v4/projects/:project_id/packages/debian/*path",
-            put(routes::packages::handle_debian_upload),
+            any(routes::packages::handle_debian_upload),
         )
         .route(
             "/api/v4/projects/:project_id/packages/rpm/*path",
-            post(routes::packages::handle_rpm_upload),
+            any(routes::packages::handle_rpm_upload),
         )
         .route(
             "/api/v4/projects/:project_id/packages/rubygems/*path",
-            post(routes::packages::handle_rubygems_upload),
+            any(routes::packages::handle_rubygems_upload),
         )
         .route(
             "/api/v4/projects/:project_id/packages/terraform/modules/*path",
-            put(routes::packages::handle_terraform_upload),
+            any(routes::packages::handle_terraform_upload),
         )
         .route(
             "/api/v4/projects/:project_id/packages/helm/api/:channel/charts",
-            post(routes::packages::handle_helm_upload),
+            any(routes::packages::handle_helm_upload).layer(DefaultBodyLimit::disable()),
         )
         // Observability Backend
         .route(
