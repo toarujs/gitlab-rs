@@ -63,3 +63,18 @@
   - LFS E2E 脚本 payload 要每次带随机值，否则 oid 已存在时 batch 合理地不返回 upload action
   - 镜像回退点：`toarujs/gitlab_rs_test:pre-lfs`=`2a2859a91cf6`（multipart 后、LFS 前）；LFS 加速后 `latest`=`12eb38113cee`
   - 9071 未部署 container registry（compose 无端口、`gitlab.rb` 无配置、`/var/opt/gitlab/registry` 不存在）
+  - 代码已推 GitHub `origin/260914-feat-ci-long-polling` @ `aa0f166`。9061 web 仍 `8163dc3493f6`，等用户确认后再打 `toarujs/gitlab-rs:19.3.1`/`:latest`
+  - 审查暂停点：`MaximumSize==0` 应视为不限大小；`lfs-objects/tmp/work` 同级目录 chown 未覆盖，可能再出 EACCES
+
+[Agent 环境连 bak]
+- Date: 2026-09-21
+- Context: Discovered by Agent while connecting to homeserver bak.toarujs.com from the coding environment
+- Category: Environment Configuration / Troubleshooting & Debugging
+- Instructions:
+  - SSH 密钥：`/workspace/.monkeycode-tmp-files/34a82c9d-bak-toarujs-key-1.pem`，加 `-o IdentitiesOnly=yes`
+  - 本环境 TCP/22 不稳定：GitHub:22 有时是真 SSH（`Permission denied (publickey)`），有时 `kex_exchange_identification`
+  - `ssh.github.com:443` 能拿到真实 SSH banner
+  - `bak.toarujs.com` DNS 已从 `27.189.147.114` 变为 `27.189.146.168`；两 IP 的 :22 都是 Connection established 后立刻被掐
+  - 跳板 `8.155.1.108`（www.toarujs.com）:443 是真 HTTPS（Tengine）；:22 同样 kex 被掐，不能 `-J`
+  - 无 HTTP_PROXY，无 corkscrew/ncat/socat/proxytunnel/cloudflared
+  - `certs/` 含站点私钥，禁止 git add
