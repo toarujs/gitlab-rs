@@ -1,7 +1,7 @@
-ARG GITLAB_CE_VERSION=19.3.1-ce.0
+ARG GITLAB_CE_VERSION=19.3.3-ce.0
 FROM gitlab/gitlab-ce:${GITLAB_CE_VERSION}
 
-LABEL gitlab.ce.version="19.3.1"
+LABEL gitlab.ce.version="19.3.3"
 
 # 安装 WebP 运行时库 (移动端图片优化)
 RUN apt-get update && apt-get install -y libwebp7 && rm -rf /var/lib/apt/lists/*
@@ -26,6 +26,8 @@ COPY gitlab-rails-overrides/locale/zh_CN/gitlab.po \
      /opt/gitlab/embedded/service/gitlab-rails/locale/zh_CN/gitlab.po
 COPY gitlab-rails-overrides/config/initializers/disable_official_version_check.rb \
      /opt/gitlab/embedded/service/gitlab-rails/config/initializers/disable_official_version_check.rb
+COPY gitlab-rails-overrides/config/initializers/gitlab_rs_cve_guards.rb \
+     /opt/gitlab/embedded/service/gitlab-rails/config/initializers/gitlab_rs_cve_guards.rb
 
 # 设置权限
 RUN chmod +x /opt/gitlab/embedded/bin/gitlab-workhorse && chmod +x /assets/init-container

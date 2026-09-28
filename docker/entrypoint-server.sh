@@ -219,6 +219,21 @@ begin
     if s.has_attribute?(:whats_new_variant) && defined?(ApplicationSetting.whats_new_variants)
       attrs[:whats_new_variant] = ApplicationSetting.whats_new_variants[:disabled]
     end
+    if s.has_attribute?(:vscode_extension_marketplace_single_origin_fallback_enabled)
+      attrs[:vscode_extension_marketplace_single_origin_fallback_enabled] = false
+    end
+    if s.has_attribute?(:vscode_extension_marketplace)
+      market = s.vscode_extension_marketplace
+      market = JSON.parse(market) if market.is_a?(String)
+      if market.respond_to?(:to_hash)
+        market = market.to_hash
+        market = market.stringify_keys if market.respond_to?(:stringify_keys)
+        if market['single_origin_fallback_enabled']
+          market['single_origin_fallback_enabled'] = false
+          attrs[:vscode_extension_marketplace] = market
+        end
+      end
+    end
     s.update_columns(attrs) unless attrs.empty?
   end
 rescue => e

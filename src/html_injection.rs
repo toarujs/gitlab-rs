@@ -106,6 +106,29 @@ hide();
 new MutationObserver(hide).observe(document.documentElement,{childList:true,subtree:true});
 })();"#;
 
+pub const UNESCAPE_HTML_ENTITIES_JS: &str = r#"(function(){
+function fixNode(n){
+if(!n)return;
+if(n.nodeType===3){
+var v=n.nodeValue;
+if(!v)return;
+var n2=v.replace(/&quot;/g,'"').replace(/(\d+) Assignees/g,'$1 位指派人');
+if(n2!==v)n.nodeValue=n2;
+}else if(n.nodeType===1&&n.childNodes){
+for(var i=0;i<n.childNodes.length;i++)fixNode(n.childNodes[i]);
+}
+}
+function fix(){if(document.body)fixNode(document.body);}
+fix();
+new MutationObserver(function(ms){
+for(var i=0;i<ms.length;i++){
+var m=ms[i];
+for(var j=0;j<m.addedNodes.length;j++)fixNode(m.addedNodes[j]);
+if(m.type==='characterData')fixNode(m.target);
+}
+}).observe(document.documentElement,{childList:true,subtree:true,characterData:true});
+})();"#;
+
 #[allow(dead_code)]
 pub const WEB_VITALS_JS: &str = r#"(function(){
 var s=document.createElement('script');
@@ -322,6 +345,8 @@ pub fn inject_mobile_html(html: &str) -> String {
         offset += ABOUT_GITLAB_FIX_JS.len();
         injected.insert_str(offset, DISABLE_OFFICIAL_UPDATE_JS);
         offset += DISABLE_OFFICIAL_UPDATE_JS.len();
+        injected.insert_str(offset, UNESCAPE_HTML_ENTITIES_JS);
+        offset += UNESCAPE_HTML_ENTITIES_JS.len();
         injected.insert_str(offset, "</script>\n");
     }
 
@@ -407,5 +432,13 @@ mod tests {
         let result = inject_mobile_html(html);
         assert!(!result.contains("https://version.gitlab.com/check.svg"));
         assert!(result.contains("whats-new-notification"));
+    }
+
+    #[test]
+    fn test_unescape_html_entities_js_injected() {
+        let html = "<!DOCTYPE html><html><head></head><body></body></html>";
+        let result = inject_mobile_html(html);
+        assert!(result.contains("&quot;"));
+        assert!(result.contains("位指派人"));
     }
 }

@@ -1045,7 +1045,7 @@ msgid "%{loadedProjects} of %{totalProjectsCount} %{projects} loaded"
 msgstr "已加载 %{loadedProjects}/%{totalProjectsCount} 个%{projects}"
 
 msgid "%{locker} has a lock on \"%{path}\". %{additionalPhrase}"
-msgstr "%{locker} 已锁定 &quot;%{path}&quot;。%{additionalPhrase}"
+msgstr "%{locker} 已锁定 \"%{path}\"。%{additionalPhrase}"
 
 msgid "%{mergeLength}/%{usersLength} can merge"
 msgstr "%{mergeLength}/%{usersLength} 可以合并"
@@ -4085,7 +4085,7 @@ msgid "AccessTokens|An error occurred while rotating the token."
 msgstr "轮换令牌时发生错误。"
 
 msgid "AccessTokens|Are you sure you want to revoke the %{accessTokenType} \"%{tokenName}\"? This action cannot be undone. Any tools that rely on this access token will stop working."
-msgstr "您确定要撤销 %{accessTokenType} &quot;%{tokenName}&quot; 吗？此操作无法撤销。任何依赖此访问令牌的工具将停止工作。"
+msgstr "您确定要撤销 %{accessTokenType} \"%{tokenName}\" 吗？此操作无法撤销。任何依赖此访问令牌的工具将停止工作。"
 
 msgid "AccessTokens|Are you sure you want to revoke the token %{tokenName}? This action cannot be undone. Any tools that rely on this access token will stop working."
 msgstr "您确定要撤销令牌 %{tokenName} 吗？此操作无法撤销。任何依赖此访问令牌的工具将停止工作。"
@@ -4094,7 +4094,7 @@ msgid "AccessTokens|Are you sure you want to revoke the token %{tokenName}? This
 msgstr "您确定要撤销令牌 %{tokenName} 吗？此操作无法撤销。任何依赖此令牌的工具将无法再访问 GitLab。"
 
 msgid "AccessTokens|Are you sure you want to rotate the %{accessTokenType} \"%{tokenName}\"? This action cannot be undone. Any tools that rely on this access token will stop working."
-msgstr "您确定要轮换 %{accessTokenType} &quot;%{tokenName}&quot; 吗？此操作无法撤销。任何依赖此访问令牌的工具将停止工作。"
+msgstr "您确定要轮换 %{accessTokenType} \"%{tokenName}\" 吗？此操作无法撤销。任何依赖此访问令牌的工具将停止工作。"
 
 msgid "AccessTokens|Are you sure you want to rotate the token %{tokenName}? This action cannot be undone. Any tools that rely on this access token will stop working."
 msgstr "您确定要轮换令牌 %{tokenName} 吗？此操作无法撤销。任何依赖此访问令牌的工具将停止工作。"
@@ -6986,7 +6986,7 @@ msgid "AdminUsers|Without two-factor authentication"
 msgstr "没有双因素验证"
 
 msgid "AdminUsers|You are about to permanently delete the user %{name}. Issues, merge requests, and groups linked to them will be transferred to a system-wide \"Ghost-user\". Once you %{strongStart}Delete user%{strongEnd}, it cannot be undone or recovered."
-msgstr "您即将永久删除用户 %{name}。与他们关联的议题、合并请求和群组将被转移到系统范围的 &quot;幽灵用户&quot;。一旦您 %{strongStart}删除用户%{strongEnd}，此操作无法撤销或恢复。"
+msgstr "您即将永久删除用户 %{name}。与他们关联的议题、合并请求和群组将被转移到系统范围的 \"幽灵用户\"。一旦您 %{strongStart}删除用户%{strongEnd}，此操作无法撤销或恢复。"
 
 msgid "AdminUsers|You are about to permanently delete the user %{name}. This will delete all issues, merge requests, groups, and projects linked to them. After you %{strongStart}Delete user%{strongEnd}, you cannot undo this action or recover the data."
 msgstr "您即将永久删除用户 %{name}。这将删除与他们关联的所有议题、合并请求、群组和项目。在您 %{strongStart}删除用户%{strongEnd} 之后，您无法撤销此操作或恢复数据。"
@@ -7691,7 +7691,7 @@ msgid "AiPowered|Enter the URL for your Duo Agent Platform service. This endpoin
 msgstr "请输入你的 Duo Agent Platform 服务的 URL。此端点用于 GitLab Duo Agent Platform 的请求。%{br} 该 URL 必须不包含 \"http://\" 或 \"https://\" 协议，例如 \"example.com:50052\"。"
 
 msgid "AiPowered|Enter the URL for your local AI Gateway. This endpoint is used for GitLab Duo Self-Hosted requests.%{br}The URL must be a complete URL, including either the \"http://\" or \"https://\" protocol. For example \"http://EXAMPLE-URL\".%{br}For more information, see how to %{linkStart}install the GitLab AI Gateway.%{linkEnd}"
-msgstr "输入本地 AI 网关的 URL。此端点用于 GitLab Duo 私有化部署请求。%{br}URL 必须是完整的 URL，包括 &quot;http://&quot; 或 &quot;https://&quot; 协议。例如 &quot;http://EXAMPLE-URL&quot;。%{br}有关更多信息，请参阅如何%{linkStart}安装极狐GitLab AI 网关。%{linkEnd}"
+msgstr "输入本地 AI 网关的 URL。此端点用于 GitLab Duo 私有化部署请求。%{br}URL 必须是完整的 URL，包括 \"http://\" 或 \"https://\" 协议。例如 \"http://EXAMPLE-URL\"。%{br}有关更多信息，请参阅如何%{linkStart}安装极狐GitLab AI 网关。%{linkEnd}"
 
 msgid "AiPowered|Everyone"
 msgstr "所有人"
@@ -10617,7 +10617,7 @@ msgstr ""
 
 msgid "Assignee"
 msgid_plural "%d Assignees"
-msgstr[0] "%d Assignees"
+msgstr[0] "%d 位指派人"
 
 msgid "Assignee (optional)"
 msgstr "指派人（可选）"
@@ -16850,7 +16850,7 @@ msgid "ClusterIntegration|Migrate to GitLab Agent for Kubernetes"
 msgstr "迁移到 Kubernetes 的极狐GitLab 代理"
 
 msgid "ClusterIntegration|Migrating cluster - failed: \"%{error}\""
-msgstr "迁移集群 - 失败：&quot;%{error}&quot;"
+msgstr "迁移集群 - 失败：\"%{error}\""
 
 msgid "ClusterIntegration|Migrating cluster - initiated"
 msgstr "迁移集群 - 已开始"
@@ -16862,7 +16862,7 @@ msgid "ClusterIntegration|Migration issue URL"
 msgstr "迁移议题 URL"
 
 msgid "ClusterIntegration|Migration issue update - failed: \"%{error}\""
-msgstr "迁移议题更新 - 失败：&quot;%{error}&quot;"
+msgstr "迁移议题更新 - 失败：\"%{error}\""
 
 msgid "ClusterIntegration|Migration issue updated successfully"
 msgstr "迁移议题更新成功"
@@ -19946,7 +19946,7 @@ msgid "Configure custom rules for Jira issue key matching"
 msgstr "为 Jira 议题密钥匹配配置自定义规则"
 
 msgid "Configure feature \"%{name}\""
-msgstr "配置功能 &quot;%{name}&quot;"
+msgstr "配置功能 \"%{name}\""
 
 msgid "Configure import sources and settings related to import and export features."
 msgstr "配置导入源以及导入导出功能相关的设置。"
@@ -21503,7 +21503,7 @@ msgid "Could not revoke impersonation token %{token_name}."
 msgstr "无法撤消身份模拟令牌 %{token_name}。"
 
 msgid "Could not revoke personal access token \"%{personal_access_token_name}\"."
-msgstr "无法撤销个人访问令牌 &quot;%{personal_access_token_name}&quot;。"
+msgstr "无法撤销个人访问令牌 \"%{personal_access_token_name}\"。"
 
 msgid "Could not save configuration. Please refresh the page, or try again later."
 msgstr "无法保存配置。请刷新此页，或稍后再试。"
@@ -26113,7 +26113,7 @@ msgid "Documentation"
 msgstr "文档"
 
 msgid "Documentation about the \"%{name}\" feature"
-msgstr "关于 &quot;%{name}&quot; 功能的文档"
+msgstr "关于 \"%{name}\" 功能的文档"
 
 msgid "Documentation for popular identity providers"
 msgstr "常见的身份验证提供商的相关文档"
@@ -35580,7 +35580,7 @@ msgid "GroupsTree|An error occurred while leaving the group. Please refresh the 
 msgstr "离开群组时发生错误。请刷新页面再试一次。"
 
 msgid "GroupsTree|Are you sure you want to leave \"%{fullName}\"?"
-msgstr "您确定要离开 &quot;%{fullName}&quot; 吗？"
+msgstr "您确定要离开 \"%{fullName}\" 吗？"
 
 msgid "GroupsTree|Leave group"
 msgstr "离开群组"
@@ -37503,7 +37503,7 @@ msgid "Import|Timeout for decompressing archived files."
 msgstr "解压归档文件超时。"
 
 msgid "Import|Users with the Owner role for the group can reassign contributions on the \"Members\" page."
-msgstr "具有群组所有者角色的用户可以在&quot;成员&quot;页面重新分配贡献。"
+msgstr "具有群组所有者角色的用户可以在\"成员\"页面重新分配贡献。"
 
 msgid "Import|View import results"
 msgstr "查看导入结果。"
@@ -37515,7 +37515,7 @@ msgid "Import|You can now review your import results."
 msgstr "现在您可以查看您的导入结果。"
 
 msgid "Import|You can reassign contributions on the \"Members\" page of the group."
-msgstr "您可以在群组的&quot;成员&quot;页面重新分配贡献。"
+msgstr "您可以在群组的\"成员\"页面重新分配贡献。"
 
 msgid "Import|You do not have permission to view import source users for this namespace"
 msgstr "您没有权限查看此命名空间的导入源用户。"
@@ -45359,10 +45359,10 @@ msgid "MlModelRegistry|New version"
 msgstr "新版本"
 
 msgid "MlModelRegistry|No description available. To add a description, click \"Edit model version\" above."
-msgstr "没有可用的描述。要添加描述，请单击上面的&quot;编辑模型版本&quot;。"
+msgstr "没有可用的描述。要添加描述，请单击上面的\"编辑模型版本\"。"
 
 msgid "MlModelRegistry|No description available. To add a description, click \"Edit model\" above."
-msgstr "没有可用的描述。要添加描述，请单击上面的&quot;编辑模型&quot;。"
+msgstr "没有可用的描述。要添加描述，请单击上面的\"编辑模型\"。"
 
 msgid "MlModelRegistry|No logged metadata"
 msgstr "无记录元数据"
@@ -51623,7 +51623,7 @@ msgid "PagesUsageQuota|This project"
 msgstr "此项目"
 
 msgid "PagesUsageQuota|This project is using the namespace domain \"%{domain}\". The usage quota includes parallel deployments for all projects in the namespace that use this domain."
-msgstr "此项目正在使用命名空间域 &quot;%{domain}&quot;。使用配额包括使用此域的命名空间中所有项目的并行部署。"
+msgstr "此项目正在使用命名空间域 \"%{domain}\"。使用配额包括使用此域的命名空间中所有项目的并行部署。"
 
 msgid "Pages|+ %{n} more deployments"
 msgstr "+ %{n} 个更多部署"
@@ -52959,7 +52959,7 @@ msgid "Pipelines|Full configuration is view only"
 msgstr "完整配置仅供查看"
 
 msgid "Pipelines|Get familiar with GitLab CI syntax by setting up a simple pipeline running a \"Hello world\" script to see how it runs, explore how CI/CD works."
-msgstr "通过设置一个简单的流水线运行一个 &quot;Hello world&quot; 脚本来熟悉极狐GitLab CI 语法，看看它是如何运行的，探索 CI/CD 是如何工作的。"
+msgstr "通过设置一个简单的流水线运行一个 \"Hello world\" 脚本来熟悉极狐GitLab CI 语法，看看它是如何运行的，探索 CI/CD 是如何工作的。"
 
 msgid "Pipelines|Get started with GitLab CI/CD"
 msgstr "开始使用 GitLab CI/CD"
@@ -60145,7 +60145,7 @@ msgid "Revoked impersonation token %{token_name}!"
 msgstr "撤销身份模拟令牌 %{token_name}！"
 
 msgid "Revoked personal access token \"%{personal_access_token_name}\"."
-msgstr "已撤销个人访问令牌 &quot;%{personal_access_token_name}&quot;。"
+msgstr "已撤销个人访问令牌 \"%{personal_access_token_name}\"。"
 
 msgid "Rich text editor"
 msgstr "富文本编辑器"
@@ -74169,7 +74169,7 @@ msgid "The user you are trying to deactivate has been active in the past %{minim
 msgstr "您正在尝试冻结的用户在过去%{minimum_inactive_days}天一直处于活动状态，因此无法冻结。"
 
 msgid "The value must be a valid JSON array format: [1,2,3] or [{\"key\": \"value\"}]"
-msgstr "值必须是有效的 JSON 数组格式：[1,2,3] 或 [{&quot;key&quot;: &quot;value&quot;}]"
+msgstr "值必须是有效的 JSON 数组格式：[1,2,3] 或 [{\"key\": \"value\"}]"
 
 msgid "The value must match the defined regular expression."
 msgstr "值必须符合定义的正则表达式。"
@@ -74745,7 +74745,7 @@ msgid "This diff is collapsed."
 msgstr "此差异已折叠。"
 
 msgid "This directory cannot be locked while %{locker} has a lock on \"%{path}\". %{additionalPhrase}"
-msgstr "此目录在%{locker}对&quot;%{path}&quot;有锁的情况下无法锁定。%{additionalPhrase}"
+msgstr "此目录在%{locker}对\"%{path}\"有锁的情况下无法锁定。%{additionalPhrase}"
 
 msgid "This domain is not verified. You will need to verify ownership before access is enabled."
 msgstr "此域名未经过验证。在启用访问权限之前，您需要验证所有权。"
@@ -79228,13 +79228,13 @@ msgid_plural "UserMapping|%{count} placeholder users were kept as placeholders."
 msgstr[0] "%{count} 个占位符用户被保留为占位符。"
 
 msgid "UserMapping|%{reassign_to_name} (%{reassign_to_username}) has declined your request to reassign contributions from %{source_name} (%{source_username}) on %{source_hostname} to them in %{destination_group}. To reassign these contributions to another user, go to the \"Members\" page of %{destination_group}."
-msgstr "%{reassign_to_name} (%{reassign_to_username}) 拒绝了您重新分配 %{source_name} (%{source_username}) 在 %{source_hostname} 上的贡献到他们的请求在 %{destination_group}。要将这些贡献重新分配给另一个用户，请转到 %{destination_group} 的&quot;成员&quot;页面。"
+msgstr "%{reassign_to_name} (%{reassign_to_username}) 拒绝了您重新分配 %{source_name} (%{source_username}) 在 %{source_hostname} 上的贡献到他们的请求在 %{destination_group}。要将这些贡献重新分配给另一个用户，请转到 %{destination_group} 的\"成员\"页面。"
 
 msgid "UserMapping|%{reassigned_by_name} (%{reassigned_by_username}) wants to reassign contributions from %{source_name} (%{source_username}) on %{source_hostname} to you in %{destination_group}."
 msgstr "%{reassigned_by_name} (%{reassigned_by_username}) 想要重新分配 %{source_name} (%{source_username}) 在 %{source_hostname} 上的贡献到您在 %{destination_group}。"
 
 msgid "UserMapping|After you select \"Reassign\", users receive an email to accept the reassignment. Accepted reassignments cannot be undone, so check all data carefully before you continue."
-msgstr "在您选择&quot;重新分配&quot;后，用户会收到一封电子邮件以接受重新分配。接受的重新分配无法撤消，因此在继续之前请仔细检查所有数据。"
+msgstr "在您选择\"重新分配\"后，用户会收到一封电子邮件以接受重新分配。接受的重新分配无法撤消，因此在继续之前请仔细检查所有数据。"
 
 msgid "UserMapping|Approve reassignment"
 msgstr "批准重新分配"
@@ -79363,7 +79363,7 @@ msgid "UserMapping|Placeholder users could not be fetched."
 msgstr "占位用户无法获取。"
 
 msgid "UserMapping|Placeholder users were created in %{group_names}. These users were assigned group memberships and contributions from %{source_hostname}. To reassign contributions from placeholder users to GitLab users, go to the \"Members\" page of %{group_links}."
-msgstr "占位用户在 %{group_names} 中创建。这些用户被分配了 %{source_hostname} 的组成员身份和贡献。要将占位用户重新分配给 GitLab 用户，请转到 %{group_links} 的&quot;成员&quot;页面。"
+msgstr "占位用户在 %{group_names} 中创建。这些用户被分配了 %{source_hostname} 的组成员身份和贡献。要将占位用户重新分配给 GitLab 用户，请转到 %{group_links} 的\"成员\"页面。"
 
 msgid "UserMapping|Placeholders"
 msgstr "占位符"
@@ -81639,7 +81639,7 @@ msgid "Vulnerability|Bug Bounty"
 msgstr "Bug Bounty"
 
 msgid "Vulnerability|CISA (the Cybersecurity & Infrastructure Security Agency, a part of the U.S. Department of Homeland Security) maintains the Known Exploited Vulnerabilities (aka \"KEV\") catalog of vulnerabilities that have been exploited in the wild."
-msgstr "美国国土安全部（美国国土安全部的一部分）维护已知被利用的漏洞（也称为&quot;KEV&quot;）漏洞目录，这些漏洞已在野外被利用。"
+msgstr "美国国土安全部（美国国土安全部的一部分）维护已知被利用的漏洞（也称为\"KEV\"）漏洞目录，这些漏洞已在野外被利用。"
 
 msgid "Vulnerability|CVSS v3"
 msgstr "CVSS v3"
@@ -89263,10 +89263,10 @@ msgid "v%{version} published %{timeAgo}"
 msgstr "v%{version}发布于%{timeAgo}"
 
 msgid "value \"%{sort}\" is not available on %{namespace}"
-msgstr "值 &quot;%{sort}&quot; 在 %{namespace} 上不可用"
+msgstr "值 \"%{sort}\" 在 %{namespace} 上不可用"
 
 msgid "value \"%{sort}\" is not available on %{namespace} for work items type %{wit}"
-msgstr "值 &quot;%{sort}&quot; 在 %{namespace} 上不可用于工作项目类型 %{wit}"
+msgstr "值 \"%{sort}\" 在 %{namespace} 上不可用于工作项目类型 %{wit}"
 
 msgid "value at %{data_pointer} should use only one of: %{requirements}"
 msgstr "%{data_pointer} 处的值应只使用以下之一：%{requirements}"

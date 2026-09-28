@@ -4,14 +4,14 @@ GitLab CE + Rust Workhorse 替换方案。用 Rust 重写的 HTTP 前端代理�
 
 ## 官方版本
 
-对应官方 GitLab CE **19.3.1**（Docker 基础镜像 `gitlab/gitlab-ce:19.3.1-ce.0`，2026-08-26 安全补丁）。
+对应官方 GitLab CE **19.3.3**（Docker 基础镜像 `gitlab/gitlab-ce:19.3.3-ce.0`，2026-09-23 安全补丁：CVE-2026-85706、CVE-2026-89078、CVE-2026-93577）。
 
 | 项 | 值 |
 |----|----|
-| 官方 CE | 19.3.1 |
-| 镜像 tag | `19.3.1-ce.0` |
+| 官方 CE | 19.3.3 |
+| 镜像 tag | `19.3.3-ce.0` |
 | 上次 rs 打包 | 2026-07-01 |
-| 本次对齐 | 2026-09-08 |
+| 本次对齐 | 2026-09-28 |
 
 已关闭官方 Version Check / Usage Ping：实例不会请求 `version.gitlab.com`，也不会显示官方更新通知。
 
@@ -156,7 +156,7 @@ DB_PASSWORD=<原 db_password>
 ROOT_PASSWORD=<任意，已有实例不会改 root 密码>
 ```
 
-镜像用本机已有的 `toarujs/gitlab-rs:19.3.1`（或先按上文构建）。yaml 里的 `image:` 与这个 tag 对齐。
+镜像用本机已有的 `toarujs/gitlab-rs:19.3.3`（或先按上文构建）。yaml 里的 `image:` 与这个 tag 对齐。
 
 ### 原地切换（推荐）
 
@@ -170,7 +170,7 @@ cp config/gitlab.rb config/gitlab.rb.ce.bak
 cp /path/to/gitlab-rs/docker-compose.yaml ./docker-compose.yaml
 
 # image tag 改成已构建的 rs 镜像
-# 例如：image: toarujs/gitlab-rs:19.3.1
+# 例如：image: toarujs/gitlab-rs:19.3.3
 
 docker compose up -d
 ```

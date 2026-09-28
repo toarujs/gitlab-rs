@@ -76,10 +76,7 @@ pub async fn accelerate_request_body(
             return (StatusCode::INTERNAL_SERVER_ERROR, "unsupported upload destination").into_response();
         }
     };
-    let maximum_size = auth
-        .get("MaximumSize")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(DEFAULT_MAX_SIZE);
+    let maximum_size = parse_maximum_size(&auth);
     let hash_functions = auth
         .get("UploadHashFunctions")
         .and_then(|v| v.as_array())
@@ -210,6 +207,7 @@ fn strip_body_headers(headers: &HeaderMap) -> HeaderMap {
     out
 }
 
+#[derive(Debug)]
 struct StoredBody {
     path: String,
     size: u64,
@@ -230,7 +228,7 @@ async fn store_body(
         tracing::error!("upload accelerate: create temp dir {}: {}", tmp_dir.display(), e);
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
-    chown_git_tree(tmp_dir);
+    chown_upload_tmp(tmp_dir);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -342,6 +340,31 @@ fn git_uid_gid() -> Option<(u32, u32)> {
     None
 }
 
+/// GitLab Rails sends `MaximumSize: 0` to mean "no limit". A missing field
+/// falls back to this workhorse's 5 GiB safety cap.
+fn parse_maximum_size(auth: &serde_json::Value) -> u64 {
+    match auth.get("MaximumSize") {
+        Some(value) => {
+            let parsed = value
+                .as_u64()
+                .or_else(|| value.as_i64().and_then(|n| u64::try_from(n).ok()));
+            match parsed {
+                Some(0) => u64::MAX,
+                Some(n) => n,
+                None => DEFAULT_MAX_SIZE,
+            }
+        }
+        None => DEFAULT_MAX_SIZE,
+    }
+}
+
+/// CarrierWave writes under `<tmp>/work` next to `<tmp>/uploads`. A leftover
+/// root-owned `work` directory is invisible to the ancestor walk above `uploads`.
+fn tmp_work_sibling(tmp_dir: &Path) -> Option<PathBuf> {
+    let work = tmp_dir.parent()?.join("work");
+    work.exists().then_some(work)
+}
+
 /// Chown `path` to the `git` user, walking up through any ancestor directories
 /// that are still owned by another user.
 ///
@@ -391,6 +414,30 @@ fn chown_git_tree(path: &Path) {
     }
 }
 
+fn chown_git_tree_recursive(path: &Path) {
+    chown_git_tree(path);
+    if !path.is_dir() {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        chown_git_tree_recursive(&entry.path());
+    }
+}
+
+/// Hand the authorize `TempPath` and its CarrierWave `work` sibling back to git.
+fn chown_upload_tmp(tmp_dir: &Path) {
+    chown_git_tree(tmp_dir);
+    if let Some(parent) = tmp_dir.parent() {
+        chown_git_tree(parent);
+    }
+    if let Some(work) = tmp_work_sibling(tmp_dir) {
+        chown_git_tree_recursive(&work);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -418,5 +465,61 @@ mod tests {
         assert!(out.get(header::CONTENT_TYPE).is_none());
         assert!(out.get(header::CONTENT_LENGTH).is_none());
         assert_eq!(out.get("private-token").unwrap(), "secret");
+    }
+
+    #[test]
+    fn maximum_size_zero_is_unlimited() {
+        let auth = serde_json::json!({"MaximumSize": 0});
+        assert_eq!(parse_maximum_size(&auth), u64::MAX);
+    }
+
+    #[test]
+    fn maximum_size_missing_uses_default_cap() {
+        let auth = serde_json::json!({});
+        assert_eq!(parse_maximum_size(&auth), DEFAULT_MAX_SIZE);
+    }
+
+    #[test]
+    fn maximum_size_positive_is_honored() {
+        let auth = serde_json::json!({"MaximumSize": 1024});
+        assert_eq!(parse_maximum_size(&auth), 1024);
+    }
+
+    #[test]
+    fn tmp_work_sibling_is_next_to_uploads() {
+        let root = std::env::temp_dir().join(format!("wh-tmp-{}", Uuid::new_v4().simple()));
+        let uploads = root.join("tmp").join("uploads");
+        let work = root.join("tmp").join("work");
+        std::fs::create_dir_all(&uploads).unwrap();
+        std::fs::create_dir_all(&work).unwrap();
+        assert_eq!(tmp_work_sibling(&uploads), Some(work));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn store_body_treats_zero_maximum_as_unlimited() {
+        let dir = std::env::temp_dir().join(format!("wh-upload-{}", Uuid::new_v4().simple()));
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let body = Body::from(&b"hello"[..]);
+        let stored = store_body(
+            &dir,
+            parse_maximum_size(&serde_json::json!({"MaximumSize": 0})),
+            None,
+            body,
+        )
+        .await
+        .unwrap();
+        assert_eq!(stored.size, 5);
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    #[tokio::test]
+    async fn store_body_rejects_over_limit() {
+        let dir = std::env::temp_dir().join(format!("wh-upload-{}", Uuid::new_v4().simple()));
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let body = Body::from(&b"hello"[..]);
+        let err = store_body(&dir, 4, None, body).await.unwrap_err();
+        assert_eq!(err, StatusCode::PAYLOAD_TOO_LARGE);
+        let _ = tokio::fs::remove_dir_all(&dir).await;
     }
 }

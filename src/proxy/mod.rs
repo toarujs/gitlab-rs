@@ -240,6 +240,18 @@ pub async fn proxy_handler(
     let best_format = crate::imageresizer::WebPConverter::best_supported_format(&parts.headers);
     let headers = parts.headers.clone();
 
+    let (headers, body) = match crate::cve_guard::guard_repository_write(
+        &method,
+        &path_str,
+        headers,
+        body,
+    )
+    .await
+    {
+        Ok(pair) => pair,
+        Err(status) => return Err(status),
+    };
+
     let result = proxy_request_streaming(State(state.clone()), method.clone(), uri, headers, body).await;
 
     match result {
@@ -611,6 +623,10 @@ async fn process_response_pipeline(
         if let Ok(path) = sendfile_path.to_str() {
             match tokio::fs::canonicalize(path).await {
                 Ok(canonical) => {
+                    if !crate::senddata::sendfile::is_allowed_sendfile_path(&canonical) {
+                        tracing::warn!("X-Sendfile path refused: {}", canonical.display());
+                        body_bytes
+                    } else {
                     match tokio::fs::read(&canonical).await {
                         Ok(file_data) => {
                             tracing::info!("X-Sendfile served: {} ({} bytes)", canonical.display(), file_data.len());
@@ -620,6 +636,7 @@ async fn process_response_pipeline(
                             tracing::error!("X-Sendfile read failed: {}: {}", canonical.display(), e);
                             body_bytes
                         }
+                    }
                     }
                 }
                 Err(_) => {
@@ -891,6 +908,9 @@ async fn upstream_unix_raw(
 
     for (key, value) in headers.iter() {
         if is_hop_by_hop_header(key.as_str()) {
+            continue;
+        }
+        if crate::cve_guard::is_client_forbidden_workhorse_header(key.as_str()) {
             continue;
         }
         if let Ok(v) = value.to_str() {

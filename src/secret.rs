@@ -194,7 +194,7 @@ pub fn add_workhorse_headers(headers: &mut HeaderMap, secret: &Secret) -> Result
     // Go compatible: Gitlab-Workhorse (title-case)
     headers.insert(
         "gitlab-workhorse",
-        HeaderValue::from_str(&format!("gitlab-workhorse-rs/{}", env!("CARGO_PKG_VERSION")))?,
+        HeaderValue::from_str(env!("CARGO_PKG_VERSION"))?,
     );
 
     // Go compatible: Gitlab-Workhorse-Proxy-Start (Unix nanosecond timestamp)

@@ -26,6 +26,7 @@ mod channel;
 mod compression;
 mod config;
 mod correlation;
+mod cve_guard;
 mod dependencyproxy;
 mod device_detection;
 mod download;
@@ -336,10 +337,16 @@ async fn shutdown_signal() {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Go workhorse uses the stdlib flag package, so GitLab Rails calls `-version`.
+    if std::env::args().skip(1).any(|a| a == "-version" || a == "--version") {
+        println!("gitlab-workhorse {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     let cli = Cli::parse();
 
     if cli.version {
-        println!("gitlab-workhorse version {}", env!("CARGO_PKG_VERSION"));
+        println!("gitlab-workhorse {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
 

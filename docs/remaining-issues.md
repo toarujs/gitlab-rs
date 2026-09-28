@@ -93,3 +93,8 @@
 
 ### ✅ 头像加速上传
 - 缓冲请求体到临时文件，用 JSON 元数据转发给 Rails
+
+### ✅ MaximumSize==0 与 tmp/work 属主
+- Rails `MaximumSize: 0` 视为不限大小
+- 上传加速同时 chown `TempPath` 父目录和同级 `tmp/work`
+- 9071 实测 generic/LFS/pypi 上传成功，`tmp/work` 属主为 `git:git`

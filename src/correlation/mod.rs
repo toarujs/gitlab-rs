@@ -49,7 +49,7 @@ pub fn add_workhorse_headers(
     version: &str,
     start_time: std::time::Instant,
 ) {
-    if let Ok(val) = HeaderValue::from_str(&format!("gitlab-workhorse-rs/{}", version)) {
+    if let Ok(val) = HeaderValue::from_str(version) {
         headers.insert(HeaderName::from_static("gitlab-workhorse"), val);
     }
 

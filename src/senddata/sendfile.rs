@@ -18,6 +18,17 @@ pub struct SendFileParams {
     pub content_disposition: Option<String>,
 }
 
+const SENDFILE_ROOTS: &[&str] = &[
+    "/var/opt/gitlab",
+    "/opt/gitlab/embedded/service/gitlab-rails/public",
+];
+
+pub fn is_allowed_sendfile_path(canonical: &std::path::Path) -> bool {
+    SENDFILE_ROOTS
+        .iter()
+        .any(|root| canonical.starts_with(std::path::Path::new(root)))
+}
+
 pub async fn send_file_inject(
     json_data: String,
     _headers: HeaderMap,
@@ -33,6 +44,11 @@ pub async fn send_file_inject(
         tracing::warn!("Send-file: path not found or invalid: {}", params.path);
         StatusCode::NOT_FOUND
     })?;
+
+    if !is_allowed_sendfile_path(&canonical) {
+        tracing::warn!("Send-file path refused: {}", canonical.display());
+        return Err(StatusCode::NOT_FOUND);
+    }
 
     if !canonical.is_file() {
         return Err(StatusCode::NOT_FOUND);
@@ -92,4 +108,27 @@ fn sanitize_filename(name: &str) -> String {
     name.chars()
         .map(|c| if c == '\r' || c == '\n' || c == '"' || c == '\\' { '_' } else { c })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn allows_gitlab_data_paths() {
+        assert!(is_allowed_sendfile_path(Path::new(
+            "/var/opt/gitlab/gitlab-rails/shared/artifacts/ab.bin"
+        )));
+        assert!(is_allowed_sendfile_path(Path::new(
+            "/opt/gitlab/embedded/service/gitlab-rails/public/favicon.ico"
+        )));
+    }
+
+    #[test]
+    fn refuses_paths_outside_gitlab() {
+        assert!(!is_allowed_sendfile_path(Path::new("/etc/passwd")));
+        assert!(!is_allowed_sendfile_path(Path::new("/tmp/secret")));
+        assert!(!is_allowed_sendfile_path(Path::new("/var/opt/gitlab-evil/x")));
+    }
 }

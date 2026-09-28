@@ -60,45 +60,97 @@ fn parse_go_duration(s: &str) -> Option<u64> {
 }
 
 fn is_ssrf_safe(url_str: &str) -> bool {
-    if let Ok(parsed) = url::Url::parse(url_str) {
-        let host = parsed.host_str().unwrap_or("");
+    let Ok(parsed) = url::Url::parse(url_str) else {
+        return false;
+    };
 
-        if host.is_empty() {
-            return false;
-        }
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return false;
+    }
 
-        let blocked_hosts = [
-            "127.0.0.1", "0.0.0.0", "::1",
-            "localhost", "localhost.localdomain",
-            "169.254.169.254",
-            "version.gitlab.com", "version.gitlab.cn",
-        ];
+    let host = parsed.host_str().unwrap_or("");
+    if host.is_empty() {
+        return false;
+    }
 
-        if blocked_hosts.contains(&host) {
-            return false;
-        }
+    let host_lower = host.to_ascii_lowercase();
+    let blocked_hosts = [
+        "127.0.0.1",
+        "0.0.0.0",
+        "::1",
+        "localhost",
+        "localhost.localdomain",
+        "169.254.169.254",
+        "metadata.google.internal",
+        "version.gitlab.com",
+        "version.gitlab.cn",
+    ];
+    if blocked_hosts.contains(&host_lower.as_str()) || host_lower.ends_with(".localhost") {
+        return false;
+    }
 
-        if host.starts_with("127.") || host.starts_with("10.") || host.starts_with("192.168.") {
-            return false;
-        }
+    if host_lower.starts_with("127.") || host_lower.starts_with("10.") || host_lower.starts_with("192.168.") {
+        return false;
+    }
 
-        if let Some(first_octet) = host.split('.').next().and_then(|s| s.parse::<u16>().ok()) {
-            if first_octet == 172 && host.split('.').nth(1).and_then(|s| s.parse::<u16>().ok()).map_or(false, |o| (16..=31).contains(&o)) {
-                return false;
-            }
-        }
-
-        if parsed.port().map_or(false, |p| {
-            matches!(p, 22 | 25 | 465 | 587 | 3306 | 5432 | 6379 | 11211 | 27017)
-        }) {
-            return false;
-        }
-
-        if parsed.scheme() != "http" && parsed.scheme() != "https" {
+    if let Some(first_octet) = host_lower.split('.').next().and_then(|s| s.parse::<u16>().ok()) {
+        if first_octet == 172
+            && host_lower
+                .split('.')
+                .nth(1)
+                .and_then(|s| s.parse::<u16>().ok())
+                .is_some_and(|o| (16..=31).contains(&o))
+        {
             return false;
         }
     }
+
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        if is_blocked_ip(ip) {
+            return false;
+        }
+    } else if let Ok(n) = host.parse::<u32>() {
+        if is_blocked_ip(std::net::IpAddr::V4(std::net::Ipv4Addr::from(n))) {
+            return false;
+        }
+    }
+
+    match parsed.host() {
+        Some(url::Host::Ipv4(v4)) if is_blocked_ip(std::net::IpAddr::V4(v4)) => return false,
+        Some(url::Host::Ipv6(v6)) if is_blocked_ip(std::net::IpAddr::V6(v6)) => return false,
+        _ => {}
+    }
+
+    if parsed.port().is_some_and(|p| {
+        matches!(p, 22 | 25 | 465 | 587 | 3306 | 5432 | 6379 | 11211 | 27017)
+    }) {
+        return false;
+    }
+
     true
+}
+
+fn is_blocked_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.octets()[0] == 169 && v4.octets()[1] == 254
+        }
+        std::net::IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || (v6.segments()[0] & 0xfe00) == 0xfc00
+                || (v6.segments()[0] & 0xffc0) == 0xfe80
+                || v6
+                    .to_ipv4_mapped()
+                    .map(|v4| is_blocked_ip(std::net::IpAddr::V4(v4)))
+                    .unwrap_or(false)
+        }
+    }
 }
 
 pub async fn send_url_inject(
@@ -229,5 +281,13 @@ mod tests {
     fn test_block_official_version_check_host() {
         assert!(!is_ssrf_safe("https://version.gitlab.com/check.json"));
         assert!(!is_ssrf_safe("https://version.gitlab.cn/check.svg"));
+    }
+
+    #[test]
+    fn test_ssrf_rejects_unparseable_and_ipv6_loopback() {
+        assert!(!is_ssrf_safe("not a url"));
+        assert!(!is_ssrf_safe("http://[::1]/secret"));
+        assert!(!is_ssrf_safe("http://2130706433/"));
+        assert!(!is_ssrf_safe("http://app.localhost/internal"));
     }
 }

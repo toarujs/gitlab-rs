@@ -8,6 +8,7 @@ pub mod channel;
 pub mod compression;
 pub mod config;
 pub mod dependencyproxy;
+pub mod cve_guard;
 pub mod device_detection;
 pub mod download;
 pub mod error;

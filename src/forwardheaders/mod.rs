@@ -129,6 +129,10 @@ pub fn forward_request_headers(
             continue;
         }
 
+        if crate::cve_guard::is_client_forbidden_workhorse_header(&key_lower) {
+            continue;
+        }
+
         result.insert(key.clone(), value.clone());
     }
 
@@ -226,4 +230,18 @@ mod tests {
             "application/octet-stream"
         );
     }
+
+    #[test]
+    fn strips_client_send_data_from_request() {
+        let mut upstream = HeaderMap::new();
+        upstream.insert("authorization", "Bearer token".parse().unwrap());
+        upstream.insert("gitlab-workhorse-send-data", "send-file:abc".parse().unwrap());
+        upstream.insert("x-sendfile", "/etc/passwd".parse().unwrap());
+        let backend = Url::parse("http://127.0.0.1").unwrap();
+        let result = forward_request_headers(&upstream, &backend);
+        assert!(result.contains_key("authorization"));
+        assert!(!result.contains_key("gitlab-workhorse-send-data"));
+        assert!(!result.contains_key("x-sendfile"));
+    }
+
 }
