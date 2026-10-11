@@ -66,7 +66,7 @@ pub async fn body_limit_middleware(
     let content_length = headers
         .get("content-length")
         .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse::<usize>().ok());
+        .and_then(|s| s.parse::<u64>().ok());
 
     // Per RFC 7230: if Transfer-Encoding is present, Content-Length must be ignored
     if has_transfer_encoding && content_length.is_some() {
@@ -83,12 +83,18 @@ pub async fn body_limit_middleware(
     }
 
     let size = content_length.unwrap_or(0);
+    let path = request.uri().path();
+    let max_bytes: u64 = if path.contains("/gitlab-lfs/objects/") {
+        5 * 1024 * 1024 * 1024
+    } else {
+        512 * 1024 * 1024
+    };
 
-    if size > 512 * 1024 * 1024 {
+    if size > max_bytes {
         tracing::warn!(
             "Request body too large: {} bytes, path: {}",
             size,
-            request.uri().path()
+            path
         );
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }

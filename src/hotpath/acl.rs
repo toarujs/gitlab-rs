@@ -21,10 +21,36 @@ pub const FEATURE_ENABLED: i32 = 20;
 /// Guest (10) on a private project cannot; Reporter+ can.
 /// Internal/public projects are readable to any logged-in user.
 pub fn can_read_code(visibility_level: i32, access_level: Option<i32>) -> bool {
-    if visibility_level >= VISIBILITY_INTERNAL {
+    can_read_code_for(visibility_level, None, access_level, true, false)
+}
+
+/// Repository read ACL for anonymous, session, and PAT callers.
+/// Public projects are readable without a user. Internal needs a
+/// logged-in non-external user. `repository_access_level == PRIVATE`
+/// restricts reads to Reporter+ members.
+pub fn can_read_code_for(
+    visibility_level: i32,
+    repository_access_level: Option<i32>,
+    access_level: Option<i32>,
+    logged_in: bool,
+    external_user: bool,
+) -> bool {
+    if repository_disabled(repository_access_level) {
+        return false;
+    }
+    if access_level.unwrap_or(0) >= ACCESS_REPORTER {
         return true;
     }
-    access_level.unwrap_or(0) >= ACCESS_REPORTER
+    if matches!(repository_access_level, Some(level) if level == FEATURE_PRIVATE) {
+        return false;
+    }
+    if visibility_level >= VISIBILITY_PUBLIC {
+        return true;
+    }
+    if visibility_level >= VISIBILITY_INTERNAL {
+        return logged_in && !external_user;
+    }
+    false
 }
 
 /// Whether a logged-in user can read CI job traces / builds.
@@ -35,6 +61,27 @@ pub fn can_read_build(
     builds_access_level: Option<i32>,
     public_builds: bool,
     access_level: Option<i32>,
+) -> bool {
+    can_read_build_for(
+        visibility_level,
+        builds_access_level,
+        public_builds,
+        access_level,
+        true,
+        false,
+    )
+}
+
+/// Job-trace ACL for anonymous, session, and PAT callers.
+/// Public + `public_builds` is readable without a user. Internal needs a
+/// logged-in non-external user (or membership). Private needs Guest+.
+pub fn can_read_build_for(
+    visibility_level: i32,
+    builds_access_level: Option<i32>,
+    public_builds: bool,
+    access_level: Option<i32>,
+    logged_in: bool,
+    external_user: bool,
 ) -> bool {
     let builds = builds_access_level.unwrap_or(FEATURE_ENABLED);
     if builds <= FEATURE_DISABLED {
@@ -47,10 +94,16 @@ pub fn can_read_build(
     if visibility_level <= VISIBILITY_PRIVATE {
         return member;
     }
-    if !public_builds {
-        return member;
+    if visibility_level >= VISIBILITY_PUBLIC {
+        return public_builds || member;
     }
-    true
+    if member {
+        return true;
+    }
+    if !logged_in || external_user {
+        return false;
+    }
+    public_builds
 }
 
 /// Whether a logged-in user can see a project in `GET /api/v4/projects`.
@@ -62,14 +115,24 @@ pub fn can_see_project(
     access_level: Option<i32>,
     external_user: bool,
 ) -> bool {
+    can_see_project_for(visibility_level, access_level, true, external_user)
+}
+
+/// Project-list visibility for anonymous, session, and PAT callers.
+pub fn can_see_project_for(
+    visibility_level: i32,
+    access_level: Option<i32>,
+    logged_in: bool,
+    external_user: bool,
+) -> bool {
     if access_level.unwrap_or(0) >= ACCESS_GUEST {
         return true;
     }
     if visibility_level >= VISIBILITY_PUBLIC {
         return true;
     }
-    if visibility_level >= VISIBILITY_INTERNAL && !external_user {
-        return true;
+    if visibility_level >= VISIBILITY_INTERNAL {
+        return logged_in && !external_user;
     }
     false
 }
@@ -178,5 +241,138 @@ mod tests {
         assert!(path.ends_with(".git"));
         assert_eq!(path, hashed_disk_path(1));
         assert_ne!(hashed_disk_path(1), hashed_disk_path(2));
+    }
+
+    #[test]
+    fn anonymous_can_read_public_only() {
+        assert!(can_read_code_for(
+            VISIBILITY_PUBLIC,
+            Some(FEATURE_ENABLED),
+            None,
+            false,
+            false
+        ));
+        assert!(!can_read_code_for(
+            VISIBILITY_INTERNAL,
+            Some(FEATURE_ENABLED),
+            None,
+            false,
+            false
+        ));
+        assert!(!can_read_code_for(
+            VISIBILITY_PRIVATE,
+            Some(FEATURE_ENABLED),
+            None,
+            false,
+            false
+        ));
+    }
+
+    #[test]
+    fn internal_denies_external_and_anonymous() {
+        assert!(can_read_code_for(
+            VISIBILITY_INTERNAL,
+            None,
+            None,
+            true,
+            false
+        ));
+        assert!(!can_read_code_for(
+            VISIBILITY_INTERNAL,
+            None,
+            None,
+            true,
+            true
+        ));
+    }
+
+    #[test]
+    fn private_repo_feature_needs_reporter() {
+        assert!(!can_read_code_for(
+            VISIBILITY_PUBLIC,
+            Some(FEATURE_PRIVATE),
+            None,
+            false,
+            false
+        ));
+        assert!(!can_read_code_for(
+            VISIBILITY_PUBLIC,
+            Some(FEATURE_PRIVATE),
+            Some(ACCESS_GUEST),
+            true,
+            false
+        ));
+        assert!(can_read_code_for(
+            VISIBILITY_PUBLIC,
+            Some(FEATURE_PRIVATE),
+            Some(ACCESS_REPORTER),
+            true,
+            false
+        ));
+        assert!(!can_read_code_for(
+            VISIBILITY_PUBLIC,
+            Some(FEATURE_DISABLED),
+            Some(ACCESS_OWNER),
+            true,
+            false
+        ));
+    }
+
+    #[test]
+    fn anonymous_sees_public_projects_only() {
+        assert!(can_see_project_for(
+            VISIBILITY_PUBLIC,
+            None,
+            false,
+            false
+        ));
+        assert!(!can_see_project_for(
+            VISIBILITY_INTERNAL,
+            None,
+            false,
+            false
+        ));
+        assert!(!can_see_project_for(
+            VISIBILITY_PRIVATE,
+            None,
+            false,
+            false
+        ));
+    }
+
+    #[test]
+    fn anonymous_can_read_public_builds_only() {
+        assert!(can_read_build_for(
+            VISIBILITY_PUBLIC,
+            Some(FEATURE_ENABLED),
+            true,
+            None,
+            false,
+            false
+        ));
+        assert!(!can_read_build_for(
+            VISIBILITY_PUBLIC,
+            Some(FEATURE_ENABLED),
+            false,
+            None,
+            false,
+            false
+        ));
+        assert!(!can_read_build_for(
+            VISIBILITY_INTERNAL,
+            Some(FEATURE_ENABLED),
+            true,
+            None,
+            false,
+            false
+        ));
+        assert!(!can_read_build_for(
+            VISIBILITY_PRIVATE,
+            Some(FEATURE_ENABLED),
+            true,
+            None,
+            false,
+            false
+        ));
     }
 }

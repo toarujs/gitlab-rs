@@ -1,8 +1,10 @@
 #![allow(dead_code)]
 use axum::{
+    body::Body,
     http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    response::Response,
 };
+use futures_util::StreamExt;
 use serde::Deserialize;
 use std::time::Duration;
 
@@ -224,13 +226,16 @@ pub async fn send_url_inject(
             }
         }
     }
-
-    let body = response.bytes().await.map_err(|e| {
-        tracing::error!("Failed to read send-url body: {}", e);
-        StatusCode::BAD_GATEWAY
-    })?;
-
-    Ok((status, response_headers, body.to_vec()).into_response())
+    let stream = response.bytes_stream().map(|chunk| {
+        chunk.map_err(|e| {
+            let boxed: Box<dyn std::error::Error + Send + Sync> = Box::new(e);
+            boxed
+        })
+    });
+    let mut resp = Response::new(Body::from_stream(stream));
+    *resp.status_mut() = status;
+    *resp.headers_mut() = response_headers;
+    Ok(resp)
 }
 
 #[cfg(test)]

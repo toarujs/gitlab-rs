@@ -33,6 +33,7 @@ pub mod proxy;
 pub mod queueing;
 pub mod ratelimit;
 pub mod redis;
+pub mod routes;
 pub mod secret;
 pub mod senddata;
 pub mod state;

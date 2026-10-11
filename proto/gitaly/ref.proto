@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package gitaly;
+
+option go_package = "gitlab.com/gitlab-org/gitaly/v16/proto/go/gitalypb";
+
+import "gitaly/smarthttp.proto";
+import "gitaly/commit.proto";
+
+service RefService {
+  rpc FindDefaultBranchName(FindDefaultBranchNameRequest) returns (FindDefaultBranchNameResponse);
+  rpc FindLocalBranches(FindLocalBranchesRequest) returns (stream FindLocalBranchesResponse);
+  rpc FindAllBranches(FindAllBranchesRequest) returns (stream FindAllBranchesResponse);
+}
+
+message FindDefaultBranchNameRequest {
+  Repository repository = 1;
+  bool head_only = 2;
+}
+
+message FindDefaultBranchNameResponse {
+  bytes name = 1;
+}
+
+message FindLocalBranchesRequest {
+  Repository repository = 1;
+  SortBy sort_by = 2;
+  PaginationParameter pagination_params = 3;
+  repeated bytes exclude_patterns = 4;
+
+  enum SortBy {
+    NAME = 0;
+    UPDATED_ASC = 1;
+    UPDATED_DESC = 2;
+  }
+}
+
+message Branch {
+  bytes name = 1;
+  GitCommit target_commit = 2;
+}
+
+message FindLocalBranchesResponse {
+  reserved 1;
+  reserved "branches";
+  repeated Branch local_branches = 2;
+}
+
+message FindAllBranchesRequest {
+  Repository repository = 1;
+  bool merged_only = 2;
+  repeated bytes merged_branches = 3;
+}
+
+message FindAllBranchesResponse {
+  message Branch {
+    bytes name = 1;
+    GitCommit target = 2;
+  }
+  repeated Branch branches = 1;
+}

@@ -120,6 +120,86 @@ pub async fn handle_repository_commits(
     State(state): State<crate::state::AppState>,
     req: Request<Body>,
 ) -> Response {
+    if req.method() == Method::GET {
+        match crate::hotpath::repo::accelerate(&state, &req).await {
+            crate::hotpath::repo::AccelResult::Hit(resp) => return resp,
+            crate::hotpath::repo::AccelResult::Fallback { reason, error } => {
+                tracing::warn!(
+                    path_template = %if req.uri().path().contains("/repository/commits/") {
+                        crate::hotpath::COMMIT_SHOW_PATH_TEMPLATE
+                    } else {
+                        crate::hotpath::COMMITS_PATH_TEMPLATE
+                    },
+                    reason = %reason,
+                    error = error,
+                    "Repository commit GET accelerate fallback to Puma"
+                );
+            }
+        }
+    }
+    match proxy::proxy_handler(State(state), req).await {
+        Ok(resp) => resp,
+        Err(status) => (status, "").into_response(),
+    }
+}
+
+pub async fn handle_repository_tree(
+    State(state): State<crate::state::AppState>,
+    req: Request<Body>,
+) -> Response {
+    match crate::hotpath::repo::accelerate(&state, &req).await {
+        crate::hotpath::repo::AccelResult::Hit(resp) => return resp,
+        crate::hotpath::repo::AccelResult::Fallback { reason, error } => {
+            tracing::warn!(
+                path_template = %crate::hotpath::TREE_PATH_TEMPLATE,
+                reason = %reason,
+                error = error,
+                "Repository tree GET accelerate fallback to Puma"
+            );
+        }
+    }
+    match proxy::proxy_handler(State(state), req).await {
+        Ok(resp) => resp,
+        Err(status) => (status, "").into_response(),
+    }
+}
+
+pub async fn handle_repository_branches(
+    State(state): State<crate::state::AppState>,
+    req: Request<Body>,
+) -> Response {
+    match crate::hotpath::repo::accelerate(&state, &req).await {
+        crate::hotpath::repo::AccelResult::Hit(resp) => return resp,
+        crate::hotpath::repo::AccelResult::Fallback { reason, error } => {
+            tracing::warn!(
+                path_template = %crate::hotpath::BRANCHES_PATH_TEMPLATE,
+                reason = %reason,
+                error = error,
+                "Repository branches GET accelerate fallback to Puma"
+            );
+        }
+    }
+    match proxy::proxy_handler(State(state), req).await {
+        Ok(resp) => resp,
+        Err(status) => (status, "").into_response(),
+    }
+}
+
+pub async fn handle_repository_archive(
+    State(state): State<crate::state::AppState>,
+    req: Request<Body>,
+) -> Response {
+    match crate::hotpath::repo::accelerate(&state, &req).await {
+        crate::hotpath::repo::AccelResult::Hit(resp) => return resp,
+        crate::hotpath::repo::AccelResult::Fallback { reason, error } => {
+            tracing::warn!(
+                path_template = %crate::hotpath::ARCHIVE_PATH_TEMPLATE,
+                reason = %reason,
+                error = error,
+                "Repository archive GET accelerate fallback to Puma"
+            );
+        }
+    }
     match proxy::proxy_handler(State(state), req).await {
         Ok(resp) => resp,
         Err(status) => (status, "").into_response(),

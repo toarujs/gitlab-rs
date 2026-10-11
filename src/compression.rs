@@ -77,7 +77,9 @@ impl Predicate for GitPackSkipPredicate {
 
 pub fn is_git_pack_path(path: &str) -> bool {
     let path = path.split('?').next().unwrap_or(path);
-    path.ends_with("/git-upload-pack") || path.ends_with("/git-receive-pack")
+    path.ends_with("/git-upload-pack")
+        || path.ends_with("/git-receive-pack")
+        || path.contains("/gitlab-lfs/objects/")
 }
 
 pub fn skip_git_http_compression_content_type(content_type: &str) -> bool {
@@ -342,6 +344,9 @@ mod tests {
         assert!(is_git_pack_path("/group/repo.git/git-receive-pack?service=git-receive-pack"));
         assert!(!is_git_pack_path("/group/repo.git/info/refs"));
         assert!(!is_git_pack_path("/api/v4/projects"));
+        assert!(is_git_pack_path(
+            "/group/repo.git/gitlab-lfs/objects/b3fc39d68311a9d79120ea7a0dcc71b7e05c303c76789370c3ccef27da0bd79b"
+        ));
     }
 
     #[test]

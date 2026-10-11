@@ -11,13 +11,13 @@ use sha2::{Digest, Sha256};
 use std::time::Instant;
 
 use super::acl;
-use super::session;
+use super::auth;
 use super::{FILES_PATH_TEMPLATE, HotPathState};
 use crate::gitaly::{GitalyClient, GitalyServer, RepoInfo};
-use crate::redis::RedisClient;
 use crate::state::AppState;
 
 const NOT_FOUND_BODY: &str = "{\"message\":\"404 File Not Found\"}";
+const SKIP_ACCEL_HEADER: &str = "x-gitlab-rs-skip-accel";
 
 #[derive(Debug)]
 pub enum AccelResult {
@@ -47,6 +47,7 @@ pub struct FilesRequest {
     pub file_path: String,
     pub git_ref: String,
     pub head_only: bool,
+    pub raw: bool,
 }
 
 pub fn blob_exceeds_limit(size: i64, max_bytes: u64) -> bool {
@@ -68,12 +69,21 @@ pub fn parse_files_request(method: &Method, path: &str, query: Option<&str>) -> 
     if project_id.is_empty() {
         return Err("missing project id".to_string());
     }
-    let file_path = percent_decode(after_project);
+    let after_project = after_project.trim_end_matches('/');
+    let (encoded_path, raw) = if let Some(rest) = after_project.strip_suffix("/raw") {
+        (rest, true)
+    } else {
+        (after_project, false)
+    };
+    let file_path = percent_decode(encoded_path);
     if file_path.is_empty() {
         return Err("missing file path".to_string());
     }
     if is_non_file_suffix(&file_path) {
-        return Err("raw/blame/authorize not accelerated".to_string());
+        return Err("blame/authorize not accelerated".to_string());
+    }
+    if raw && query_flag_true(query, "lfs") {
+        return Err("lfs raw not accelerated".to_string());
     }
     let git_ref = query_param(query, "ref").unwrap_or_default();
     if git_ref.is_empty() {
@@ -84,12 +94,20 @@ pub fn parse_files_request(method: &Method, path: &str, query: Option<&str>) -> 
         file_path,
         git_ref,
         head_only: method == Method::HEAD,
+        raw,
     })
 }
 
 fn is_non_file_suffix(file_path: &str) -> bool {
     let trimmed = file_path.trim_end_matches('/');
-    trimmed.ends_with("/raw") || trimmed.ends_with("/blame") || trimmed.ends_with("/authorize")
+    trimmed.ends_with("/blame") || trimmed.ends_with("/authorize")
+}
+
+fn query_flag_true(query: Option<&str>, key: &str) -> bool {
+    matches!(
+        query_param(query, key).as_deref().map(|s| s.to_ascii_lowercase()).as_deref(),
+        Some("true") | Some("1") | Some("yes") | Some("on")
+    )
 }
 
 pub fn accelerate<'a>(
@@ -125,43 +143,16 @@ pub fn accelerate<'a>(
 }
 
 async fn accelerate_inner(state: &AppState, req: &super::CapturedRequest) -> AccelResult {
+    if req.headers.get(SKIP_ACCEL_HEADER).is_some() {
+        return AccelResult::Fallback {
+            reason: "skip accel header".to_string(),
+            error: false,
+        };
+    }
     let parsed = match parse_files_request(&req.method, &req.path, req.query.as_deref()) {
         Ok(p) => p,
         Err(reason) => {
             return AccelResult::Fallback { reason, error: false };
-        }
-    };
-
-    let cookie = req
-        .headers
-        .get(header::COOKIE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    let Some(session_id) = session::session_id_from_cookie_header(cookie) else {
-        return AccelResult::Fallback {
-            reason: "session cookie missing".to_string(),
-            error: false,
-        };
-    };
-    let Some(redis_url) = state.hotpath.redis_url.as_deref() else {
-        return AccelResult::Fallback {
-            reason: "redis not configured".to_string(),
-            error: false,
-        };
-    };
-    let user_id = match load_session_user_id(redis_url, &session_id).await {
-        Ok(Some(id)) => id,
-        Ok(None) => {
-            return AccelResult::Fallback {
-                reason: "session decode failed".to_string(),
-                error: false,
-            };
-        }
-        Err(e) => {
-            return AccelResult::Fallback {
-                reason: format!("session redis: {e}"),
-                error: false,
-            };
         }
     };
 
@@ -171,6 +162,20 @@ async fn accelerate_inner(state: &AppState, req: &super::CapturedRequest) -> Acc
             "postgres not configured",
         );
     };
+    let identity = match auth::resolve_identity(
+        &req.headers,
+        req.query.as_deref(),
+        state.hotpath.redis_url.as_deref(),
+        database_url,
+    )
+    .await
+    {
+        Ok(identity) => identity,
+        Err(auth::AuthError::Unauthorized) => return unauthorized_hit(),
+        Err(auth::AuthError::Fallback { reason, error }) => {
+            return AccelResult::Fallback { reason, error };
+        }
+    };
     let project = match load_project(database_url, &parsed.project_id).await {
         Ok(Some(p)) => p,
         Ok(None) => return not_found_hit(),
@@ -179,11 +184,21 @@ async fn accelerate_inner(state: &AppState, req: &super::CapturedRequest) -> Acc
     if acl::repository_disabled(project.repository_access_level) {
         return not_found_hit();
     }
-    let access = match load_access_level(database_url, user_id, project.id).await {
-        Ok(level) => level,
-        Err(e) => return record_error(state, &format!("postgres acl: {e}")),
+    let access = match identity.user_id {
+        Some(_) if identity.admin => Some(acl::ACCESS_OWNER),
+        Some(user_id) => match load_access_level(database_url, user_id, project.id).await {
+            Ok(level) => level,
+            Err(e) => return record_error(state, &format!("postgres acl: {e}")),
+        },
+        None => None,
     };
-    if !acl::can_read_code(project.visibility_level, access) {
+    if !acl::can_read_code_for(
+        project.visibility_level,
+        project.repository_access_level,
+        access,
+        identity.logged_in(),
+        identity.external,
+    ) {
         return not_found_hit();
     }
 
@@ -200,7 +215,7 @@ async fn accelerate_inner(state: &AppState, req: &super::CapturedRequest) -> Acc
         Err(e) => return record_error(state, &e),
     };
 
-    AccelResult::Hit(file_response(&file, parsed.head_only))
+    AccelResult::Hit(file_response(&file, parsed.head_only, parsed.raw))
 }
 
 fn record_error(state: &AppState, reason: &str) -> AccelResult {
@@ -222,6 +237,17 @@ fn not_found_hit() -> AccelResult {
     )
 }
 
+fn unauthorized_hit() -> AccelResult {
+    AccelResult::Hit(
+        (
+            StatusCode::UNAUTHORIZED,
+            [(header::CONTENT_TYPE, "application/json")],
+            auth::UNAUTHORIZED_JSON,
+        )
+            .into_response(),
+    )
+}
+
 enum FetchFile {
     Body(RepositoryFileBody),
     Oversize,
@@ -235,19 +261,6 @@ struct ProjectRow {
     disk_path: String,
     full_path: String,
     repository_access_level: Option<i32>,
-}
-
-async fn load_session_user_id(redis_url: &str, session_id: &str) -> Result<Option<i64>, String> {
-    let client = RedisClient::new(redis_url.to_string());
-    client.connect().await?;
-    for key in session::redis_session_keys(session_id) {
-        if let Some(bytes) = client.get_bytes(&key).await? {
-            if let Some(id) = session::user_id_from_session_bytes(&bytes) {
-                return Ok(Some(id));
-            }
-        }
-    }
-    Ok(None)
 }
 
 async fn pg_client(connstr: &str) -> Result<tokio_postgres::Client, String> {
@@ -273,7 +286,7 @@ async fn load_project(connstr: &str, project_id: &str) -> Result<Option<ProjectR
                  LEFT JOIN routes r ON r.source_id = p.id AND r.source_type = 'Project'
                  LEFT JOIN project_features pf ON pf.project_id = p.id
                  WHERE p.id = $1",
-                &[&project_id.parse::<i32>().map_err(|e| e.to_string())?],
+                &[&project_id.parse::<i64>().map_err(|e| e.to_string())?],
             )
             .await
             .map_err(|e| e.to_string())?
@@ -356,7 +369,7 @@ async fn load_access_level(
             "SELECT access_level FROM project_authorizations
              WHERE user_id = $1 AND project_id = $2
              LIMIT 1",
-            &[&(user_id as i32), &(project_id as i32)],
+            &[&user_id, &project_id],
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -369,16 +382,11 @@ async fn fetch_repository_file(
     parsed: &FilesRequest,
     max_bytes: u64,
 ) -> Result<FetchFile, String> {
-    let (gitaly_addr, gitaly_token) = match (
-        state.git.gitaly_address.as_deref(),
-        state.git.gitaly_token.as_deref(),
-    ) {
-        (Some(addr), token) => (addr, token.unwrap_or("")),
-        _ => return Err("gitaly not configured".to_string()),
-    };
+    let (gitaly_addr, gitaly_token) =
+        super::repo::resolve_gitaly_endpoint(state).ok_or_else(|| "gitaly not configured".to_string())?;
     let server = GitalyServer {
-        address: gitaly_addr.to_string(),
-        token: gitaly_token.to_string(),
+        address: gitaly_addr,
+        token: gitaly_token,
         call_metadata: Default::default(),
     };
     let mut client = GitalyClient::connect(&server)
@@ -386,7 +394,7 @@ async fn fetch_repository_file(
         .map_err(|e| format!("gitaly connect: {e}"))?;
     let repo = RepoInfo::new(
         &project.repository_storage,
-        &project.disk_path,
+        &super::repo::gitaly_relative_path(&project.disk_path),
         &project.full_path,
         &format!("project-{}", project.id),
     );
@@ -486,9 +494,19 @@ pub fn build_file_body(
     }
 }
 
-fn file_response(body: &RepositoryFileBody, head_only: bool) -> Response {
+fn file_response(body: &RepositoryFileBody, head_only: bool, raw: bool) -> Response {
     let mut headers = HeaderMap::new();
-    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    if raw {
+        headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/plain"));
+        let escaped = body.file_name.replace('\\', "\\\\").replace('"', "\\\"");
+        insert_str(
+            &mut headers,
+            "content-disposition",
+            &format!("inline; filename=\"{escaped}\""),
+        );
+    } else {
+        headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    }
     insert_str(&mut headers, "x-gitlab-file-name", &body.file_name);
     insert_str(&mut headers, "x-gitlab-file-path", &body.file_path);
     insert_str(&mut headers, "x-gitlab-size", &body.size.to_string());
@@ -505,6 +523,12 @@ fn file_response(body: &RepositoryFileBody, head_only: bool) -> Response {
     );
     if head_only {
         return (StatusCode::OK, headers).into_response();
+    }
+    if raw {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&body.content)
+            .unwrap_or_default();
+        return (StatusCode::OK, headers, bytes).into_response();
     }
     let json = serde_json::to_vec(body).unwrap_or_else(|_| b"{}".to_vec());
     (StatusCode::OK, headers, json).into_response()
@@ -661,14 +685,39 @@ mod tests {
         assert_eq!(req.file_path, "app/models/key.rb");
         assert_eq!(req.git_ref, "master");
         assert!(!req.head_only);
+        assert!(!req.raw);
     }
 
     #[test]
     fn parse_skips_raw_and_write_methods() {
-        assert!(parse_files_request(
+        let raw = parse_files_request(
             &Method::GET,
             "/api/v4/projects/14/repository/files/README.md/raw",
             Some("ref=main"),
+        )
+        .unwrap();
+        assert_eq!(raw.file_path, "README.md");
+        assert!(raw.raw);
+        let nested = parse_files_request(
+            &Method::GET,
+            "/api/v4/projects/14/repository/files/app%2Fmodels%2Fkey.rb/raw",
+            Some("ref=master"),
+        )
+        .unwrap();
+        assert_eq!(nested.file_path, "app/models/key.rb");
+        assert!(nested.raw);
+        let named_raw = parse_files_request(
+            &Method::GET,
+            "/api/v4/projects/14/repository/files/dir%2Fraw",
+            Some("ref=main"),
+        )
+        .unwrap();
+        assert_eq!(named_raw.file_path, "dir/raw");
+        assert!(!named_raw.raw);
+        assert!(parse_files_request(
+            &Method::GET,
+            "/api/v4/projects/14/repository/files/README.md/raw",
+            Some("ref=main&lfs=true"),
         )
         .is_err());
         assert!(parse_files_request(

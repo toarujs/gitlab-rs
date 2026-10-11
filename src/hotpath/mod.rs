@@ -9,14 +9,23 @@ use axum::{
 };
 
 pub mod acl;
+pub mod auth;
 pub mod files;
 pub mod session;
 pub mod trace;
 pub mod projects;
+pub mod repo;
 
 pub const FILES_PATH_TEMPLATE: &str = "/api/v4/projects/:id/repository/files/*";
 pub const TRACE_PATH_TEMPLATE: &str = "/api/v4/projects/:id/jobs/:id/trace";
 pub const PROJECTS_PATH_TEMPLATE: &str = "/api/v4/projects";
+pub const PROJECT_SHOW_PATH_TEMPLATE: &str = "/api/v4/projects/:id";
+pub const TREE_PATH_TEMPLATE: &str = "/api/v4/projects/:id/repository/tree";
+pub const COMMITS_PATH_TEMPLATE: &str = "/api/v4/projects/:id/repository/commits";
+pub const ARCHIVE_PATH_TEMPLATE: &str = "/api/v4/projects/:id/repository/archive";
+pub const COMMIT_SHOW_PATH_TEMPLATE: &str = "/api/v4/projects/:id/repository/commits/:sha";
+pub const BRANCHES_PATH_TEMPLATE: &str = "/api/v4/projects/:id/repository/branches";
+pub const LFS_OBJECT_PATH_TEMPLATE: &str = "/:namespace/:project.git/gitlab-lfs/objects/:oid";
 
 /// Send-safe copy of the HTTP bits hotpath accelerate needs.
 /// `Request<Body>` is not Sync (`Body` is `dyn HttpBody + Send`), so `&Request<Body>`
@@ -113,6 +122,8 @@ fn git_smart_http_template(path: &str) -> Option<String> {
         "/info/refs" | "/git-upload-pack" | "/git-receive-pack"
     ) {
         Some(format!("/:namespace/:project.git{suffix}"))
+    } else if suffix.starts_with("/gitlab-lfs/objects/") {
+        Some(LFS_OBJECT_PATH_TEMPLATE.to_string())
     } else {
         None
     }
@@ -287,6 +298,11 @@ mod tests {
         assert_eq!(
             path_template("/group/repo.git/info/lfs"),
             "/group/repo.git/info/lfs"
+        );
+        let oid = "b3fc39d68311a9d79120ea7a0dcc71b7e05c303c76789370c3ccef27da0bd79b";
+        assert_eq!(
+            path_template(&format!("/group/repo.git/gitlab-lfs/objects/{oid}/33")),
+            LFS_OBJECT_PATH_TEMPLATE
         );
     }
 

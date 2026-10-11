@@ -1382,6 +1382,7 @@ dependencies = [
  "moka",
  "prometheus",
  "prost",
+ "prost-types",
  "rand 0.8.6",
  "redis",
  "regex",

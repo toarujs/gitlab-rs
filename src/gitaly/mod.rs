@@ -16,8 +16,10 @@ use gitaly::{
     diff_service_client::DiffServiceClient,
     repository_service_client::RepositoryServiceClient,
     smart_http_service_client::SmartHttpServiceClient,
-    FindCommitRequest, GetArchiveRequest, GetBlobRequest, GetSnapshotRequest,
-    InfoRefsRequest, LastCommitForPathRequest,
+    ref_service_client::RefServiceClient,
+    FindAllBranchesRequest, FindCommitRequest, FindCommitsRequest, FindDefaultBranchNameRequest,
+    FindLocalBranchesRequest, GetArchiveRequest, GetBlobRequest, GetSnapshotRequest,
+    GetTreeEntriesRequest, GitCommit, InfoRefsRequest, LastCommitForPathRequest,
     PostReceivePackRequest, PostUploadPackRequest, PostUploadPackWithSidechannelRequest,
     RawDiffRequest, RawPatchRequest, Repository, TreeEntryRequest,
 };
@@ -83,6 +85,7 @@ pub struct GitalyClient {
     blob: BlobServiceClient<Channel>,
     commit: CommitServiceClient<Channel>,
     diff: DiffServiceClient<Channel>,
+    refs: RefServiceClient<Channel>,
     server: GitalyServer,
 }
 
@@ -95,7 +98,8 @@ impl GitalyClient {
             repository: RepositoryServiceClient::new(channel.clone()),
             blob: BlobServiceClient::new(channel.clone()),
             commit: CommitServiceClient::new(channel.clone()),
-            diff: DiffServiceClient::new(channel),
+            diff: DiffServiceClient::new(channel.clone()),
+            refs: RefServiceClient::new(channel),
             server: server.clone(),
         })
     }
@@ -386,6 +390,53 @@ impl GitalyClient {
         Ok(data)
     }
 
+    /// Stream archive bytes without buffering the whole payload in Workhorse.
+    pub async fn stream_archive(
+        &mut self,
+        repo: &RepoInfo,
+        commit_id: &str,
+        prefix: &str,
+        format: i32,
+        path: &[u8],
+        include_lfs_blobs: bool,
+    ) -> Result<ReceiverStream<Result<Bytes, io::Error>>, tonic::Status> {
+        let mut req = tonic::Request::new(GetArchiveRequest {
+            repository: Some(self.build_repo(repo)),
+            commit_id: commit_id.to_string(),
+            prefix: prefix.to_string(),
+            format,
+            path: path.to_vec(),
+            exclude: Vec::new(),
+            elide_path: false,
+            include_lfs_blobs,
+        });
+        self.apply_auth(&mut req);
+        let mut response_stream = self.repository.get_archive(req).await?.into_inner();
+        let (out_tx, out_rx) = mpsc::channel::<Result<Bytes, io::Error>>(16);
+        tokio::spawn(async move {
+            loop {
+                match response_stream.message().await {
+                    Ok(Some(chunk)) => {
+                        if chunk.data.is_empty() {
+                            continue;
+                        }
+                        if out_tx.send(Ok(Bytes::from(chunk.data))).await.is_err() {
+                            break;
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(e) => {
+                        let _ = out_tx
+                            .send(Err(io::Error::new(io::ErrorKind::Other, e)))
+                            .await;
+                        break;
+                    }
+                }
+            }
+        });
+        Ok(ReceiverStream::new(out_rx))
+    }
+
     pub async fn get_snapshot(
         &mut self,
         repo: &RepoInfo,
@@ -531,6 +582,175 @@ impl GitalyClient {
         Ok(resp.commit.map(|c| c.id).filter(|s| !s.is_empty()))
     }
 
+    pub async fn get_tree_entries(
+        &mut self,
+        repo: &RepoInfo,
+        revision: &str,
+        path: &str,
+        recursive: bool,
+    ) -> Result<Vec<gitaly::TreeEntry>, tonic::Status> {
+        let mut req = tonic::Request::new(GetTreeEntriesRequest {
+            repository: Some(self.build_repo(repo)),
+            revision: revision.as_bytes().to_vec(),
+            path: path.as_bytes().to_vec(),
+            recursive,
+            // Rails lib/gitlab/gitaly_client/commit_service.rb uses TREES_FIRST.
+            sort: 1,
+            pagination_params: None,
+            skip_flat_paths: true,
+            with_last_commit: false,
+        });
+        self.apply_auth(&mut req);
+        let mut stream = self.commit.get_tree_entries(req).await?.into_inner();
+        let mut entries = Vec::new();
+        while let Some(chunk) = stream.message().await? {
+            entries.extend(chunk.entries);
+        }
+        Ok(entries)
+    }
+
+    pub async fn find_commits(
+        &mut self,
+        repo: &RepoInfo,
+        revision: &str,
+        limit: i32,
+        offset: i32,
+        after: Option<prost_types::Timestamp>,
+        before: Option<prost_types::Timestamp>,
+    ) -> Result<Vec<GitCommit>, tonic::Status> {
+        let mut req = tonic::Request::new(FindCommitsRequest {
+            repository: Some(self.build_repo(repo)),
+            revision: revision.as_bytes().to_vec(),
+            limit,
+            offset,
+            paths: Vec::new(),
+            follow: false,
+            skip_merges: false,
+            disable_walk: false,
+            after,
+            before,
+            all: false,
+            first_parent: false,
+            author: Vec::new(),
+            order: 0,
+            trailers: false,
+            include_shortstat: false,
+            include_referenced_by: Vec::new(),
+            message_regex: String::new(),
+        });
+        self.apply_auth(&mut req);
+        let mut stream = self.commit.find_commits(req).await?.into_inner();
+        let mut commits = Vec::new();
+        while let Some(chunk) = stream.message().await? {
+            commits.extend(chunk.commits);
+        }
+        Ok(commits)
+    }
+
+    pub async fn find_commit_with_stats(
+        &mut self,
+        repo: &RepoInfo,
+        revision: &str,
+    ) -> Result<Option<GitCommit>, tonic::Status> {
+        let mut req = tonic::Request::new(FindCommitsRequest {
+            repository: Some(self.build_repo(repo)),
+            revision: revision.as_bytes().to_vec(),
+            limit: 1,
+            offset: 0,
+            paths: Vec::new(),
+            follow: false,
+            skip_merges: false,
+            disable_walk: false,
+            after: None,
+            before: None,
+            all: false,
+            first_parent: false,
+            author: Vec::new(),
+            order: 0,
+            trailers: true,
+            include_shortstat: true,
+            include_referenced_by: Vec::new(),
+            message_regex: String::new(),
+        });
+        self.apply_auth(&mut req);
+        let mut stream = self.commit.find_commits(req).await?.into_inner();
+        let mut commits = Vec::new();
+        while let Some(chunk) = stream.message().await? {
+            commits.extend(chunk.commits);
+        }
+        Ok(commits.into_iter().next())
+    }
+
+    pub async fn find_default_branch_name(
+        &mut self,
+        repo: &RepoInfo,
+    ) -> Result<String, tonic::Status> {
+        let mut req = tonic::Request::new(FindDefaultBranchNameRequest {
+            repository: Some(self.build_repo(repo)),
+            head_only: false,
+        });
+        self.apply_auth(&mut req);
+        let resp = self.refs.find_default_branch_name(req).await?.into_inner();
+        Ok(strip_branch_name(&resp.name))
+    }
+
+    pub async fn find_local_branches(
+        &mut self,
+        repo: &RepoInfo,
+        sort_by: i32,
+    ) -> Result<Vec<(String, GitCommit)>, tonic::Status> {
+        let mut req = tonic::Request::new(FindLocalBranchesRequest {
+            repository: Some(self.build_repo(repo)),
+            sort_by,
+            pagination_params: None,
+            exclude_patterns: Vec::new(),
+        });
+        self.apply_auth(&mut req);
+        let mut stream = self.refs.find_local_branches(req).await?.into_inner();
+        let mut branches = Vec::new();
+        while let Some(chunk) = stream.message().await? {
+            for branch in chunk.local_branches {
+                let Some(commit) = branch.target_commit else {
+                    continue;
+                };
+                branches.push((strip_branch_name(&branch.name), commit));
+            }
+        }
+        Ok(branches)
+    }
+
+    pub async fn find_merged_branches(
+        &mut self,
+        repo: &RepoInfo,
+        branch_names: &[String],
+    ) -> Result<Vec<(String, String)>, tonic::Status> {
+        let merged_branches = branch_names
+            .iter()
+            .map(|name| {
+                if name.starts_with("refs/heads/") {
+                    name.as_bytes().to_vec()
+                } else {
+                    format!("refs/heads/{name}").into_bytes()
+                }
+            })
+            .collect();
+        let mut req = tonic::Request::new(FindAllBranchesRequest {
+            repository: Some(self.build_repo(repo)),
+            merged_only: true,
+            merged_branches,
+        });
+        self.apply_auth(&mut req);
+        let mut stream = self.refs.find_all_branches(req).await?.into_inner();
+        let mut out = Vec::new();
+        while let Some(chunk) = stream.message().await? {
+            for branch in chunk.branches {
+                let target_id = branch.target.map(|c| c.id).unwrap_or_default();
+                out.push((strip_branch_name(&branch.name), target_id));
+            }
+        }
+        Ok(out)
+    }
+
     pub async fn raw_diff(
         &mut self,
         repo: &RepoInfo,
@@ -570,6 +790,14 @@ impl GitalyClient {
         }
         Ok(data)
     }
+}
+
+fn strip_branch_name(raw: &[u8]) -> String {
+    let owned = String::from_utf8_lossy(raw);
+    let name = owned.trim().trim_end_matches('\0');
+    name.strip_prefix("refs/heads/")
+        .unwrap_or(name)
+        .to_string()
 }
 
 #[allow(dead_code)]

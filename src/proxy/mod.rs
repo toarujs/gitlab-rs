@@ -415,9 +415,13 @@ pub async fn proxy_request_streaming(
     // raw payload to a temp file, then hand Rails a signed form body. Rails'
     // `upload_finalize` reads `params[:file]`, which stays nil for a raw body,
     // so an unaccelerated upload is answered with 422.
-    if method == Method::PUT && is_lfs_upload_path(uri.path()) && is_octet_stream(&headers) {
-        let lfs_path = uri.path().to_string();
-        let response = crate::upload::request_body::accelerate_request_body(
+    if (method == Method::PUT
+        && crate::routes::git_lfs::is_lfs_object_put_path(uri.path())
+        && is_octet_stream(&headers))
+        || ((method == Method::GET || method == Method::HEAD)
+            && crate::routes::git_lfs::is_lfs_object_get_path(uri.path()))
+    {
+        let response = crate::routes::git_lfs::handle_lfs_object(
             state.clone(),
             method,
             uri,
@@ -428,7 +432,6 @@ pub async fn proxy_request_streaming(
         let status = response.status().as_u16();
         state.metrics.record_request_duration(timer.elapsed_ms() as f64 / 1000.0);
         timer.finish(status);
-        tracing::info!(path = %lfs_path, status, "Git LFS upload accelerated");
         return Ok(response);
     }
 
@@ -619,35 +622,32 @@ async fn process_response_pipeline(
 ) -> Result<Response, StatusCode> {
     let mut filtered = forwardheaders::forward_response_headers(response_headers, None, &[]);
 
-    let body_bytes = if let Some(sendfile_path) = response_headers.get(crate::headers::X_SENDFILE_HEADER) {
+    // Send-data injection must inspect the *original* upstream headers: `filtered`
+    // has `gitlab-workhorse-send-data` stripped by `forward_response_headers`.
+    // Rails answers these requests with an empty body and lets workhorse serve the
+    // content, so this must not depend on the body being valid UTF-8.
+    if let Some(inject_response) =
+        senddata::intercept_send_data(status, response_headers, "", &state.injecters).await
+    {
+        return Ok(inject_response);
+    }
+
+    if let Some(sendfile_path) = response_headers.get(crate::headers::X_SENDFILE_HEADER) {
         if let Ok(path) = sendfile_path.to_str() {
-            match tokio::fs::canonicalize(path).await {
-                Ok(canonical) => {
-                    if !crate::senddata::sendfile::is_allowed_sendfile_path(&canonical) {
-                        tracing::warn!("X-Sendfile path refused: {}", canonical.display());
-                        body_bytes
-                    } else {
-                    match tokio::fs::read(&canonical).await {
-                        Ok(file_data) => {
-                            tracing::info!("X-Sendfile served: {} ({} bytes)", canonical.display(), file_data.len());
-                            Bytes::from(file_data)
-                        }
-                        Err(e) => {
-                            tracing::error!("X-Sendfile read failed: {}: {}", canonical.display(), e);
-                            body_bytes
-                        }
-                    }
-                    }
-                }
-                Err(_) => {
-                    tracing::warn!("X-Sendfile path not found: {}", path);
-                    body_bytes
+            match crate::senddata::sendfile::stream_path(path, filtered.clone()).await {
+                Ok(resp) => return Ok(resp),
+                Err(err_status) => {
+                    tracing::warn!(
+                        path = %path,
+                        status = err_status.as_u16(),
+                        "X-Sendfile stream failed"
+                    );
                 }
             }
-        } else {
-            body_bytes
         }
-    } else if body_bytes.is_empty()
+    }
+
+    let body_bytes = if body_bytes.is_empty()
         && crate::headers::is_detect_content_type_header_present(response_headers)
     {
         let file_path = format!("/var/opt/gitlab/gitlab-rails{}", uri.path());
@@ -676,16 +676,6 @@ async fn process_response_pipeline(
     } else {
         body_bytes
     };
-
-    // Send-data injection must inspect the *original* upstream headers: `filtered`
-    // has `gitlab-workhorse-send-data` stripped by `forward_response_headers`.
-    // Rails answers these requests with an empty body and lets workhorse serve the
-    // content, so this must not depend on the body being valid UTF-8.
-    if let Some(inject_response) =
-        senddata::intercept_send_data(status, response_headers, "", &state.injecters).await
-    {
-        return Ok(inject_response);
-    }
 
     if is_internal_workhorse_json(&filtered) {
         tracing::error!(
@@ -1127,20 +1117,7 @@ fn is_lfs_path(path: &str) -> bool {
 
 /// The LFS object upload endpoint: `.../gitlab-lfs/objects/<64-hex-oid>/<size>`.
 fn is_lfs_upload_path(path: &str) -> bool {
-    if !is_git_url(path) || !path.contains("/gitlab-lfs/objects/") {
-        return false;
-    }
-    let mut segments = path.trim_end_matches('/').rsplit('/');
-    let Some(size) = segments.next() else {
-        return false;
-    };
-    let Some(oid) = segments.next() else {
-        return false;
-    };
-    !size.is_empty()
-        && size.bytes().all(|b| b.is_ascii_digit())
-        && oid.len() == 64
-        && oid.bytes().all(|b| b.is_ascii_hexdigit())
+    crate::routes::git_lfs::is_lfs_object_put_path(path)
 }
 
 fn is_octet_stream(headers: &HeaderMap) -> bool {

@@ -676,8 +676,57 @@ async fn main() -> anyhow::Result<()> {
         )
         // Repository API
         .route(
+            "/api/v4/projects/:project_id/repository/tree",
+            get(routes::uploads::handle_repository_tree),
+        )
+        .route(
+            "/api/v4/projects/:project_id/repository/branches",
+            get(routes::uploads::handle_repository_branches),
+        )
+        .route(
             "/api/v4/projects/:project_id/repository/commits",
-            get(proxy::proxy_handler).post(routes::uploads::handle_repository_commits),
+            get(routes::uploads::handle_repository_commits)
+                .post(routes::uploads::handle_repository_commits),
+        )
+        .route(
+            "/api/v4/projects/:project_id/repository/commits/:sha",
+            get(routes::uploads::handle_repository_commits),
+        )
+        .route(
+            "/api/v4/projects/:project_id/repository/archive",
+            get(routes::uploads::handle_repository_archive),
+        )
+        .route(
+            "/api/v4/projects/:project_id/repository/archive.zip",
+            get(routes::uploads::handle_repository_archive),
+        )
+        .route(
+            "/api/v4/projects/:project_id/repository/archive.tar",
+            get(routes::uploads::handle_repository_archive),
+        )
+        .route(
+            "/api/v4/projects/:project_id/repository/archive.tar.gz",
+            get(routes::uploads::handle_repository_archive),
+        )
+        .route(
+            "/api/v4/projects/:project_id/repository/archive.tgz",
+            get(routes::uploads::handle_repository_archive),
+        )
+        .route(
+            "/api/v4/projects/:project_id/repository/archive.tar.bz2",
+            get(routes::uploads::handle_repository_archive),
+        )
+        .route(
+            "/api/v4/projects/:project_id/repository/archive.tbz",
+            get(routes::uploads::handle_repository_archive),
+        )
+        .route(
+            "/api/v4/projects/:project_id/repository/archive.tbz2",
+            get(routes::uploads::handle_repository_archive),
+        )
+        .route(
+            "/api/v4/projects/:project_id/repository/archive.tb2",
+            get(routes::uploads::handle_repository_archive),
         )
         .route(
             "/api/v4/projects/:project_id/repository/files/*path",
@@ -716,7 +765,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/api/v4/projects/:project_id",
-            get(proxy::proxy_handler)
+            get(routes::projects::handle_project_show)
                 .put(proxy::proxy_handler)
                 .delete(proxy::proxy_handler),
         )

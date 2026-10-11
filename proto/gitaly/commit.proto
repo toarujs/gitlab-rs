@@ -5,6 +5,7 @@ package gitaly;
 option go_package = "gitlab.com/gitlab-org/gitaly/v16/proto/go/gitalypb";
 
 import "gitaly/smarthttp.proto";
+import "google/protobuf/timestamp.proto";
 
 message TreeEntryRequest {
   Repository repository = 1;
@@ -28,8 +29,120 @@ message TreeEntryResponse {
   bytes data = 5;
 }
 
+enum SignatureType {
+  NONE = 0;
+  PGP = 1;
+  X509 = 2;
+  SSH = 3;
+}
+
+message CommitTrailer {
+  bytes key = 1;
+  bytes value = 2;
+}
+
+message CommitStatInfo {
+  int32 additions = 1;
+  int32 deletions = 2;
+  int32 changed_files = 3;
+}
+
+message CommitAuthor {
+  bytes name = 1;
+  bytes email = 2;
+  google.protobuf.Timestamp date = 3;
+  bytes timezone = 4;
+}
+
 message GitCommit {
   string id = 1;
+  bytes subject = 2;
+  bytes body = 3;
+  CommitAuthor author = 4;
+  CommitAuthor committer = 5;
+  repeated string parent_ids = 6;
+  int64 body_size = 7;
+  SignatureType signature_type = 8;
+  string tree_id = 9;
+  repeated CommitTrailer trailers = 10;
+  CommitStatInfo short_stats = 11;
+  repeated bytes referenced_by = 12;
+  string encoding = 13;
+}
+
+message PaginationParameter {
+  string page_token = 1;
+  int32 limit = 2;
+}
+
+message PaginationCursor {
+  string next_cursor = 1;
+}
+
+message TreeEntry {
+  reserved 2;
+  string oid = 1;
+  bytes path = 3;
+  EntryType type = 4;
+  int32 mode = 5;
+  string commit_oid = 6;
+  bytes flat_path = 7;
+  GitCommit last_commit = 8;
+  enum EntryType {
+    BLOB = 0;
+    TREE = 1;
+    COMMIT = 3;
+  }
+}
+
+message GetTreeEntriesRequest {
+  Repository repository = 1;
+  bytes revision = 2;
+  bytes path = 3;
+  bool recursive = 4;
+  SortBy sort = 5;
+  PaginationParameter pagination_params = 6;
+  bool skip_flat_paths = 7;
+  bool with_last_commit = 8;
+  enum SortBy {
+    DEFAULT = 0;
+    TREES_FIRST = 1;
+    FILESYSTEM = 2;
+  }
+}
+
+message GetTreeEntriesResponse {
+  repeated TreeEntry entries = 1;
+  PaginationCursor pagination_cursor = 2;
+}
+
+message FindCommitsRequest {
+  Repository repository = 1;
+  bytes revision = 2;
+  int32 limit = 3;
+  int32 offset = 4;
+  repeated bytes paths = 5;
+  bool follow = 6;
+  bool skip_merges = 7;
+  bool disable_walk = 8;
+  google.protobuf.Timestamp after = 9;
+  google.protobuf.Timestamp before = 10;
+  bool all = 11;
+  bool first_parent = 12;
+  bytes author = 13;
+  Order order = 14;
+  bool trailers = 16;
+  bool include_shortstat = 17;
+  repeated bytes include_referenced_by = 18;
+  string message_regex = 19;
+  enum Order {
+    NONE = 0;
+    TOPO = 1;
+  }
+}
+
+message FindCommitsResponse {
+  repeated GitCommit commits = 1;
 }
 
 message FindCommitRequest {
@@ -57,4 +170,6 @@ service CommitService {
   rpc TreeEntry(TreeEntryRequest) returns (stream TreeEntryResponse);
   rpc FindCommit(FindCommitRequest) returns (FindCommitResponse);
   rpc LastCommitForPath(LastCommitForPathRequest) returns (LastCommitForPathResponse);
+  rpc GetTreeEntries(GetTreeEntriesRequest) returns (stream GetTreeEntriesResponse);
+  rpc FindCommits(FindCommitsRequest) returns (stream FindCommitsResponse);
 }

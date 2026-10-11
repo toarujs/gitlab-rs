@@ -13,14 +13,14 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
 
 use super::acl;
-use super::session;
+use super::auth;
 use super::TRACE_PATH_TEMPLATE;
-use crate::redis::RedisClient;
 use crate::state::AppState;
 
 const NOT_FOUND_BODY: &str = "{\"message\":\"404 Not Found\"}";
 const TRACE_FILE_TYPE: i32 = 3;
 const LOCAL_STORE: i32 = 1;
+const SKIP_ACCEL_HEADER: &str = "x-gitlab-rs-skip-accel";
 
 #[derive(Debug)]
 pub enum AccelResult {
@@ -256,6 +256,12 @@ pub fn accelerate<'a>(
 }
 
 async fn accelerate_inner(state: &AppState, req: &super::CapturedRequest) -> AccelResult {
+    if req.headers.get(SKIP_ACCEL_HEADER).is_some() {
+        return AccelResult::Fallback {
+            reason: "skip accel header".to_string(),
+            error: false,
+        };
+    }
     let parsed = match parse_trace_request(&req.method, &req.path, req.query.as_deref()) {
         Ok(p) => p,
         Err(reason) => {
@@ -266,67 +272,46 @@ async fn accelerate_inner(state: &AppState, req: &super::CapturedRequest) -> Acc
         }
     };
 
-    let job_token = job_token_from_headers(&req.headers, req.query.as_deref());
-    let cookie = req
-        .headers
-        .get(header::COOKIE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    let session_id = session::session_id_from_cookie_header(cookie);
-
-    if session_id.is_none() {
-        if job_token.is_some() {
-            return AccelResult::Fallback {
-                reason: "job token not verified locally".to_string(),
-                error: false,
-            };
-        }
-        return AccelResult::Fallback {
-            reason: "session cookie missing".to_string(),
-            error: false,
-        };
-    }
-    let session_id = session_id.unwrap();
-
-    let Some(redis_url) = state.hotpath.redis_url.as_deref() else {
-        return AccelResult::Fallback {
-            reason: "redis not configured".to_string(),
-            error: false,
-        };
-    };
-    let user_id = match load_session_user_id(redis_url, &session_id).await {
-        Ok(Some(id)) => id,
-        Ok(None) => {
-            return AccelResult::Fallback {
-                reason: "session decode failed".to_string(),
-                error: false,
-            };
-        }
-        Err(e) => {
-            return AccelResult::Fallback {
-                reason: format!("session redis: {e}"),
-                error: false,
-            };
-        }
-    };
-
     let Some(database_url) = state.hotpath.database_url.as_deref() else {
         return record_error(state, "postgres not configured");
     };
+    let identity = match auth::resolve_identity(
+        &req.headers,
+        req.query.as_deref(),
+        state.hotpath.redis_url.as_deref(),
+        database_url,
+    )
+    .await
+    {
+        Ok(identity) => identity,
+        Err(auth::AuthError::Unauthorized) => return unauthorized_hit(),
+        Err(auth::AuthError::Fallback { reason, error }) => {
+            return AccelResult::Fallback { reason, error };
+        }
+    };
+    if !identity.logged_in() {
+        return unauthorized_hit();
+    }
     let project = match load_project(database_url, &parsed.project_id).await {
         Ok(Some(p)) => p,
         Ok(None) => return not_found_hit(),
         Err(e) => return record_error(state, &format!("postgres: {e}")),
     };
-    let access = match load_access_level(database_url, user_id, project.id).await {
-        Ok(level) => level,
-        Err(e) => return record_error(state, &format!("postgres acl: {e}")),
+    let access = match identity.user_id {
+        Some(_) if identity.admin => Some(acl::ACCESS_OWNER),
+        Some(user_id) => match load_access_level(database_url, user_id, project.id).await {
+            Ok(level) => level,
+            Err(e) => return record_error(state, &format!("postgres acl: {e}")),
+        },
+        None => None,
     };
-    if !acl::can_read_build(
+    if !acl::can_read_build_for(
         project.visibility_level,
         project.builds_access_level,
         project.public_builds,
         access,
+        identity.logged_in(),
+        identity.external,
     ) {
         return not_found_hit();
     }
@@ -377,6 +362,17 @@ fn not_found_hit() -> AccelResult {
             StatusCode::NOT_FOUND,
             [(header::CONTENT_TYPE, "application/json")],
             NOT_FOUND_BODY,
+        )
+            .into_response(),
+    )
+}
+
+fn unauthorized_hit() -> AccelResult {
+    AccelResult::Hit(
+        (
+            StatusCode::UNAUTHORIZED,
+            [(header::CONTENT_TYPE, "application/json")],
+            auth::UNAUTHORIZED_JSON,
         )
             .into_response(),
     )
@@ -552,19 +548,6 @@ async fn file_body(path: &Path, start: u64, len: u64) -> Result<Body, String> {
     Ok(Body::from_stream(stream))
 }
 
-async fn load_session_user_id(redis_url: &str, session_id: &str) -> Result<Option<i64>, String> {
-    let client = RedisClient::new(redis_url.to_string());
-    client.connect().await?;
-    for key in session::redis_session_keys(session_id) {
-        if let Some(bytes) = client.get_bytes(&key).await? {
-            if let Some(id) = session::user_id_from_session_bytes(&bytes) {
-                return Ok(Some(id));
-            }
-        }
-    }
-    Ok(None)
-}
-
 async fn pg_client(connstr: &str) -> Result<tokio_postgres::Client, String> {
     let (client, connection) = tokio_postgres::connect(connstr, tokio_postgres::NoTls)
         .await
@@ -582,7 +565,7 @@ fn is_undefined_table(err: &str) -> bool {
 async fn load_project(connstr: &str, project_id: &str) -> Result<Option<ProjectRow>, String> {
     let client = pg_client(connstr).await?;
     let row = if project_id.bytes().all(|b| b.is_ascii_digit()) {
-        let id = project_id.parse::<i32>().map_err(|e| e.to_string())?;
+        let id = project_id.parse::<i64>().map_err(|e| e.to_string())?;
         client
             .query_opt(
                 "SELECT p.id, p.visibility_level,
@@ -629,7 +612,7 @@ async fn load_access_level(
             "SELECT access_level FROM project_authorizations
              WHERE user_id = $1 AND project_id = $2
              LIMIT 1",
-            &[&(user_id as i32), &(project_id as i32)],
+            &[&user_id, &project_id],
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -667,7 +650,7 @@ async fn query_job(
          LIMIT 1"
     );
     let row = client
-        .query_opt(&sql, &[&job_id, &(project_id as i32), &TRACE_FILE_TYPE])
+        .query_opt(&sql, &[&job_id, &project_id, &TRACE_FILE_TYPE])
         .await
         .map_err(|e| e.to_string())?;
     Ok(row.map(|row| job_from_row(&row)))
@@ -951,6 +934,26 @@ mod tests {
             Some(acl::FEATURE_ENABLED),
             true,
             Some(acl::ACCESS_GUEST)
+        ));
+    }
+
+    #[test]
+    fn anonymous_can_read_public_builds_only() {
+        assert!(acl::can_read_build_for(
+            acl::VISIBILITY_PUBLIC,
+            Some(acl::FEATURE_ENABLED),
+            true,
+            None,
+            false,
+            false
+        ));
+        assert!(!acl::can_read_build_for(
+            acl::VISIBILITY_INTERNAL,
+            Some(acl::FEATURE_ENABLED),
+            true,
+            None,
+            false,
+            false
         ));
     }
 
