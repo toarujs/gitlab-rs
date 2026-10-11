@@ -574,13 +574,17 @@ async fn accelerate_inner(state: &AppState, req: &super::CapturedRequest) -> Acc
     if acl::repository_disabled(project.repository_access_level) {
         return not_found_hit();
     }
-    let access = match identity.user_id {
-        Some(_) if identity.admin => Some(acl::ACCESS_OWNER),
+    let membership = match identity.user_id {
         Some(user_id) => match load_access_level(database_url, user_id, project.id).await {
             Ok(level) => level,
             Err(e) => return record_error(state, template, &format!("postgres acl: {e}")),
         },
         None => None,
+    };
+    let access = if identity.admin {
+        Some(acl::ACCESS_OWNER)
+    } else {
+        membership
     };
     if !acl::can_read_code_for(
         project.visibility_level,
@@ -598,7 +602,7 @@ async fn accelerate_inner(state: &AppState, req: &super::CapturedRequest) -> Acc
         RepoRead::Archive(archive) => fetch_archive(state, &project, archive).await,
         RepoRead::Commit(commit) => fetch_commit_show(state, &project, commit).await,
         RepoRead::Branches(branches) => {
-            fetch_branches(state, &project, branches, &identity, access).await
+            fetch_branches(state, &project, branches, &identity, membership).await
         }
     }
 }
@@ -1420,9 +1424,6 @@ fn can_push_to_branch(
     if identity.user_id.is_none() {
         return false;
     }
-    if identity.admin {
-        return true;
-    }
     let access = access.unwrap_or(0);
     if !is_protected {
         return access >= ACCESS_DEVELOPER;
@@ -2239,5 +2240,30 @@ production:
         assert_eq!(value["default"], true);
         assert_eq!(value["web_url"], "https://example/x/-/tree/master");
         assert_eq!(value["commit"]["id"], "abc");
+    }
+
+    #[test]
+    fn can_push_matches_membership_not_admin_flag() {
+        let admin = auth::Identity {
+            user_id: Some(1),
+            external: false,
+            admin: true,
+        };
+        let guest = auth::Identity {
+            user_id: Some(2),
+            external: false,
+            admin: false,
+        };
+        let rule = ProtectedRule {
+            name: "master".to_string(),
+            push_levels: vec![40],
+            merge_levels: vec![40],
+        };
+        let matched = vec![&rule];
+        assert!(!can_push_to_branch(&admin, None, true, &matched));
+        assert!(!can_push_to_branch(&guest, Some(30), true, &matched));
+        assert!(can_push_to_branch(&guest, Some(40), true, &matched));
+        assert!(can_push_to_branch(&guest, Some(30), false, &[]));
+        assert!(!can_push_to_branch(&auth::Identity::anonymous(), None, false, &[]));
     }
 }
