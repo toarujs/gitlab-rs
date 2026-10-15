@@ -295,17 +295,13 @@ fn identity_from_user_row(
     })
 }
 
-async fn pg_client(connstr: &str) -> Result<tokio_postgres::Client, AuthError> {
-    let (client, connection) = tokio_postgres::connect(connstr, tokio_postgres::NoTls)
+async fn pg_client(connstr: &str) -> Result<super::pg::PgConn, AuthError> {
+    super::pg::get(connstr)
         .await
-        .map_err(|e| AuthError::Fallback {
-            reason: format!("postgres: {e}"),
+        .map_err(|reason| AuthError::Fallback {
+            reason: format!("postgres: {reason}"),
             error: true,
-        })?;
-    tokio::spawn(async move {
-        let _ = connection.await;
-    });
-    Ok(client)
+        })
 }
 
 fn authorization_credential(headers: &HeaderMap) -> Option<PresentedCredential> {

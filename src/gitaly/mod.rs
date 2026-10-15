@@ -3,7 +3,7 @@ pub mod sidechannel;
 use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use tokio::sync::{mpsc, Mutex};
 
 pub mod gitaly {
@@ -33,6 +33,12 @@ pub struct GitalyServer {
     pub token: String,
     #[allow(dead_code)]
     pub call_metadata: HashMap<String, String>,
+}
+
+/// Process-wide cache of Gitaly gRPC channels, keyed by address.
+fn channel_cache() -> &'static StdMutex<HashMap<String, Channel>> {
+    static CHANNELS: OnceLock<StdMutex<HashMap<String, Channel>>> = OnceLock::new();
+    CHANNELS.get_or_init(|| StdMutex::new(HashMap::new()))
 }
 
 #[derive(Debug, Clone)]
@@ -91,7 +97,7 @@ pub struct GitalyClient {
 
 impl GitalyClient {
     pub async fn connect(server: &GitalyServer) -> io::Result<Self> {
-        let channel = Self::create_grpc_channel(server).await?;
+        let channel = Self::cached_channel(server).await?;
 
         Ok(Self {
             smart_http: SmartHttpServiceClient::new(channel.clone()),
@@ -102,6 +108,28 @@ impl GitalyClient {
             refs: RefServiceClient::new(channel),
             server: server.clone(),
         })
+    }
+
+    /// Reuse one tonic `Channel` per Gitaly address.
+    ///
+    /// Dialing a fresh channel (TCP/unix connect + HTTP/2 handshake) on every
+    /// request dominated hot-path latency. A tonic `Channel` multiplexes
+    /// concurrent streams and reconnects transparently, so it is safe to share.
+    async fn cached_channel(server: &GitalyServer) -> io::Result<Channel> {
+        if let Some(channel) = channel_cache()
+            .lock()
+            .unwrap()
+            .get(&server.address)
+            .cloned()
+        {
+            return Ok(channel);
+        }
+        let channel = Self::create_grpc_channel(server).await?;
+        let mut cache = channel_cache().lock().unwrap();
+        Ok(cache
+            .entry(server.address.clone())
+            .or_insert(channel)
+            .clone())
     }
 
     async fn create_grpc_channel(server: &GitalyServer) -> io::Result<Channel> {

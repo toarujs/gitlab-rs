@@ -263,14 +263,8 @@ struct ProjectRow {
     repository_access_level: Option<i32>,
 }
 
-async fn pg_client(connstr: &str) -> Result<tokio_postgres::Client, String> {
-    let (client, connection) = tokio_postgres::connect(connstr, tokio_postgres::NoTls)
-        .await
-        .map_err(|e| e.to_string())?;
-    tokio::spawn(async move {
-        let _ = connection.await;
-    });
-    Ok(client)
+async fn pg_client(connstr: &str) -> Result<super::pg::PgConn, String> {
+    super::pg::get(connstr).await
 }
 
 async fn load_project(connstr: &str, project_id: &str) -> Result<Option<ProjectRow>, String> {

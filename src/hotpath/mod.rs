@@ -11,6 +11,7 @@ use axum::{
 pub mod acl;
 pub mod auth;
 pub mod files;
+pub mod pg;
 pub mod session;
 pub mod trace;
 pub mod projects;
