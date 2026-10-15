@@ -140,7 +140,12 @@ pub async fn guard_repository_write(
         return Ok((headers, body));
     }
     if !has_api_credential(&headers) {
-        tracing::warn!(path, "Rejected unauthenticated repository write");
+        tracing::warn!(
+            path,
+            guard = "cve_guard",
+            code = "REPO_WRITE_UNAUTHENTICATED",
+            "Rejected unauthenticated repository write"
+        );
         return Err(StatusCode::UNAUTHORIZED);
     }
     if internal_workhorse_upload {
@@ -158,7 +163,12 @@ pub async fn guard_repository_write(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     if body_has_client_upload_path_field(&bytes, content_type) {
-        tracing::warn!(path, "Rejected client workhorse upload metadata on repository write");
+        tracing::warn!(
+            path,
+            guard = "cve_guard",
+            code = "CLIENT_UPLOAD_PATH_FIELD",
+            "Rejected client workhorse upload metadata on repository write"
+        );
         return Err(StatusCode::BAD_REQUEST);
     }
     Ok((headers, Body::from(bytes)))

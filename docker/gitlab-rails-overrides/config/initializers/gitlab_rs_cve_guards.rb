@@ -30,7 +30,15 @@ module GitlabRsUploadedFilePathGuard
   def gitlab_rs_assert_upload_path!(path)
     full = File.expand_path(path.to_s)
     allowed = ALLOWED_PREFIXES.any? { |prefix| full == prefix || full.start_with?("#{prefix}/") }
-    raise ArgumentError, 'upload path is not allowed' unless allowed
+    return if allowed
+
+    # A new workhorse upload destination that is not yet whitelisted lands here
+    # and previously failed with a bare "upload path is not allowed". Include the
+    # rejected path plus an actionable marker so the failure is greppable.
+    raise ArgumentError,
+          "gitlab-rs upload guard [UPLOAD_PATH_NOT_ALLOWED]: #{full.inspect} is outside " \
+          "ALLOWED_PREFIXES; add its prefix to gitlab_rs_cve_guards.rb if this is a " \
+          'legitimate workhorse upload destination'
   end
 end
 

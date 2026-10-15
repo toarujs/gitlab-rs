@@ -1,4 +1,18 @@
 //! Accelerate `GET/HEAD /api/v4/projects/:id/jobs/:job_id/trace`.
+//!
+//! Only the **API** trace endpoint is accelerated. The **web** route
+//! `/-/jobs/:id/raw` is served by Rails (`Projects::JobsController#raw`) and is
+//! deliberately left alone. The two endpoints differ and must not be conflated:
+//!
+//! | aspect        | API `/api/v4/projects/:id/jobs/:id/trace` | web `/-/jobs/:id/raw` |
+//! |---------------|-------------------------------------------|-----------------------|
+//! | `byte_offset` | supported (clamped to EOF)                | ignored (always full) |
+//! | `byte_limit`  | supported (1..=512000, else 400)          | ignored (always full) |
+//! | `Range`       | ignored, 200 full body                    | honoured by `send_file` (can 206) |
+//! | auth          | session or PAT/job token                  | session (web) |
+//!
+//! Contract: `byte_limit=0` or `> 512000` is a client error (falls back to
+//! Rails, which returns 400); `byte_offset` beyond EOF yields an empty 200.
 
 use axum::{
     body::Body,
@@ -826,6 +840,53 @@ mod tests {
     fn no_byte_params_reads_all() {
         assert_eq!(resolve_trace_range(None, None, 100), TraceRange::All);
         assert_eq!(resolve_trace_range(None, None, 0), TraceRange::All);
+    }
+
+    // --- Contract regression tests (API trace endpoint) -------------------
+    // These encode the behaviour that differs from the web `/-/jobs/:id/raw`
+    // route, which is not accelerated. See the module docs.
+
+    #[test]
+    fn contract_byte_limit_zero_is_client_error() {
+        // `byte_limit=0` must be rejected so the request falls back to Rails,
+        // whose API returns 400 (`byte_limit does not have a valid value`).
+        assert!(parse_trace_request(
+            &Method::GET,
+            "/api/v4/projects/14/jobs/19/trace",
+            Some("byte_limit=0"),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn contract_byte_offset_beyond_eof_is_empty() {
+        // An offset past EOF must yield an empty 200 window, never an error.
+        assert_eq!(
+            resolve_trace_range(Some(999_999), Some(100), 3_821),
+            TraceRange::Span {
+                start: 3_821,
+                len: 0
+            }
+        );
+    }
+
+    #[test]
+    fn contract_range_and_legacy_offset_are_ignored() {
+        // `Range` is an HTTP header the parser never reads, and the legacy
+        // `offset` query param is not recognised: both must fall back to a full
+        // read (200), matching the API route's behaviour.
+        let req = parse_trace_request(
+            &Method::GET,
+            "/api/v4/projects/14/jobs/19/trace",
+            Some("offset=10&range=bytes%3D0-119"),
+        )
+        .unwrap();
+        assert_eq!(req.byte_offset, None);
+        assert_eq!(req.byte_limit, None);
+        assert_eq!(
+            resolve_trace_range(req.byte_offset, req.byte_limit, 3_821),
+            TraceRange::All
+        );
     }
 
     #[test]

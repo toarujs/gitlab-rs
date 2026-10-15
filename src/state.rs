@@ -64,12 +64,14 @@ impl std::fmt::Debug for AppState {
 pub struct HealthResponse {
     pub status: String,
     pub version: String,
+    pub git_sha: String,
     pub build_time: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VersionResponse {
     pub version: String,
+    pub git_sha: String,
     pub build_time: String,
 }
 
@@ -77,6 +79,7 @@ pub async fn health_check() -> impl IntoResponse {
     Json(HealthResponse {
         status: "ok".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
+        git_sha: env!("GITLAB_RS_GIT_SHA").to_string(),
         build_time: chrono::Utc::now().to_rfc3339(),
     })
 }
@@ -84,6 +87,7 @@ pub async fn health_check() -> impl IntoResponse {
 pub async fn version() -> impl IntoResponse {
     Json(VersionResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
+        git_sha: env!("GITLAB_RS_GIT_SHA").to_string(),
         build_time: chrono::Utc::now().to_rfc3339(),
     })
 }

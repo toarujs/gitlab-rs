@@ -403,6 +403,9 @@ async fn main() -> anyhow::Result<()> {
         "Starting GitLab Workhorse RS v{}",
         env!("CARGO_PKG_VERSION")
     );
+    // Deployment fingerprint: lets `docker logs` / `/version` be matched to a
+    // commit without inferring deployment state from response behaviour.
+    tracing::info!("Build git SHA: {}", env!("GITLAB_RS_GIT_SHA"));
     tracing::info!("Listen address: {}/{}", cli.listen_network, cli.listen_addr);
     tracing::info!("Auth backend: {}", resolved_backend);
     tracing::info!("Document root: {}", document_root);
@@ -554,6 +557,10 @@ async fn main() -> anyhow::Result<()> {
             "/api/v4/jobs/:job_id/artifacts",
             get(routes::artifacts::handle_artifacts_download),
         )
+        // API trace endpoint (accelerated). Note the web equivalent
+        // `/-/jobs/:id/raw` is proxied straight to Rails and does NOT support
+        // `byte_offset`/`byte_limit` nor ignore `Range` the same way; see the
+        // module docs in `hotpath::trace` before changing either path.
         .route(
             "/api/v4/projects/:project_id/jobs/:job_id/trace",
             get(routes::artifacts::handle_job_trace)
