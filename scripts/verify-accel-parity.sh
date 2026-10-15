@@ -12,7 +12,8 @@
 #   BASE=http://127.0.0.1:9070 TOKEN=glpat-... PROJECT_ID=14 JOB_ID=19 \
 #     scripts/verify-accel-parity.sh
 #
-# Requires: curl, cmp. Exit code 0 = all responses identical.
+# Requires: curl, cmp, python3. Exit code 0 = all responses equivalent
+# (byte-identical for `bytes` endpoints, semantically equal for JSON ones).
 set -uo pipefail
 
 BASE=${BASE:-http://127.0.0.1:9070}
@@ -30,14 +31,33 @@ else
   AUTH=()
 fi
 
-# compare <label> <path>
+# compare <label> <path> [json|bytes]
+#
+# `bytes` is used for endpoints that must match verbatim (job trace is a raw
+# text stream). `json` (default) parses both bodies and compares them as
+# canonical JSON: the accelerator and Rails emit the same object graph but
+# order object keys differently, and a given client only ever talks to one
+# layer, so key order is not part of the contract. Value/field differences are
+# still caught.
 compare() {
-  local label="$1" path="$2"
-  local acode scode
+  local label="$1" path="$2" mode="${3:-json}"
+  local acode scode ok=""
   acode=$(curl -s -o "$tmp/a" -w '%{http_code}' "${AUTH[@]}" "$BASE$path")
   scode=$(curl -s -o "$tmp/s" -w '%{http_code}' "${AUTH[@]}" \
     -H 'X-Gitlab-Rs-Skip-Accel: 1' "$BASE$path")
-  if [ "$acode" = "$scode" ] && cmp -s "$tmp/a" "$tmp/s"; then
+  if [ "$acode" = "$scode" ]; then
+    if [ "$mode" = "bytes" ]; then
+      cmp -s "$tmp/a" "$tmp/s" && ok=1
+    else
+      python3 - "$tmp/a" "$tmp/s" <<'PY' && ok=1
+import json, sys
+a = json.load(open(sys.argv[1]))
+s = json.load(open(sys.argv[2]))
+sys.exit(0 if a == s else 1)
+PY
+    fi
+  fi
+  if [ -n "$ok" ]; then
     echo "OK   $label  http=$acode bytes=$(wc -c < "$tmp/a")"
   else
     echo "FAIL $label  accel=$acode skip=$scode"
@@ -50,12 +70,12 @@ compare() {
 J="/api/v4/projects/$PROJECT_ID/jobs/$JOB_ID/trace"
 
 # --- API trace contract (accelerated) ---
-compare "trace full"            "$J"
-compare "trace offset0 limit120" "$J?byte_offset=0&byte_limit=120"
-compare "trace offset999999"    "$J?byte_offset=999999&byte_limit=100"
-compare "trace limit0 (400)"    "$J?byte_limit=0"
-compare "trace offset_neg (400)" "$J?byte_offset=-1"
-compare "trace limit_big (400)" "$J?byte_limit=512001"
+compare "trace full"            "$J" bytes
+compare "trace offset0 limit120" "$J?byte_offset=0&byte_limit=120" bytes
+compare "trace offset999999"    "$J?byte_offset=999999&byte_limit=100" bytes
+compare "trace limit0 (400)"    "$J?byte_limit=0" bytes
+compare "trace offset_neg (400)" "$J?byte_offset=-1" bytes
+compare "trace limit_big (400)" "$J?byte_limit=512001" bytes
 
 # --- repository read acceleration ---
 P="/api/v4/projects/$PROJECT_ID"
