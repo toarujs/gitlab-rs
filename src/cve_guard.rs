@@ -97,6 +97,18 @@ pub fn is_mutating_repository_path(method: &Method, path: &str) -> bool {
         && is_repository_commits_or_files_path(path)
 }
 
+/// Marker inserted into the request extensions by the Workhorse-compatible
+/// body-upload accelerator on the request it rewrites for Rails.
+///
+/// HTTP clients cannot set request extensions, so its presence proves the
+/// `file.*`/`file.path` fields were produced by our own uploader (backed by a
+/// signed upload JWT) rather than injected by a client trying to steer Rails at
+/// an arbitrary upload path. The original client body is still run through
+/// [`guard_repository_write`] before it is buffered, so client-injected path
+/// fields are rejected as usual.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct InternalWorkhorseUpload;
+
 pub fn body_has_client_upload_path_field(bytes: &[u8], content_type: &str) -> bool {
     let ct = content_type.to_ascii_lowercase();
     if ct.contains("json") {
@@ -122,6 +134,7 @@ pub async fn guard_repository_write(
     path: &str,
     headers: HeaderMap,
     body: Body,
+    internal_workhorse_upload: bool,
 ) -> Result<(HeaderMap, Body), StatusCode> {
     if !is_mutating_repository_path(method, path) {
         return Ok((headers, body));
@@ -129,6 +142,11 @@ pub async fn guard_repository_write(
     if !has_api_credential(&headers) {
         tracing::warn!(path, "Rejected unauthenticated repository write");
         return Err(StatusCode::UNAUTHORIZED);
+    }
+    if internal_workhorse_upload {
+        // Our own uploader already rewrote this into signed `file.*` form
+        // fields; the path field is ours, not client-controlled.
+        return Ok((headers, body));
     }
     let bytes = body
         .collect()
@@ -313,6 +331,7 @@ mod tests {
             "/api/v4/projects/1/repository/commits",
             headers,
             body,
+            false,
         )
         .await
         .unwrap_err();
@@ -330,6 +349,7 @@ mod tests {
             "/api/v4/projects/1/repository/commits.json",
             headers,
             body,
+            false,
         )
         .await
         .unwrap_err();
@@ -349,6 +369,7 @@ mod tests {
             "/api/v4/projects/1/repository/commits",
             headers,
             body,
+            false,
         )
         .await;
         assert!(result.is_ok());
@@ -363,6 +384,29 @@ mod tests {
             "/api/v4/projects/1/repository/commits",
             headers,
             body,
+            false,
+        )
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn guard_allows_internal_upload_rewrite() {
+        // The accelerator's rewritten form carries `file.path`, but the marker
+        // tells the guard it came from our own uploader.
+        let mut headers = HeaderMap::new();
+        headers.insert("private-token", "glpat-test".parse().unwrap());
+        headers.insert(
+            "content-type",
+            "application/x-www-form-urlencoded".parse().unwrap(),
+        );
+        let body = Body::from("file.path=%2Ftmp%2Fupload&file.name=upload");
+        let result = guard_repository_write(
+            &Method::POST,
+            "/api/v4/projects/1/repository/commits",
+            headers,
+            body,
+            true,
         )
         .await;
         assert!(result.is_ok());

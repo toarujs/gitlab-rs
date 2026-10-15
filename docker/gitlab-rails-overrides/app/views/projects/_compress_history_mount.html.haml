@@ -1,0 +1,5 @@
+- if current_user && can?(current_user, :admin_project, project)
+  #js-gitlab-rs-compress-history{ data: { project_id: project.id, project_path: project.path_with_namespace, api_path: "/-/gitlab-rs/projects/#{project.id}/compress_history", can_squash: can?(current_user, :remove_project, project).to_s } }
+  - js = Rails.root.join('public/gitlab-rs-compress-history.js')
+  - if File.file?(js)
+    = javascript_tag raw(File.read(js)), nonce: content_security_policy_nonce

@@ -239,12 +239,17 @@ pub async fn proxy_handler(
     let client_accepts_webp = crate::imageresizer::WebPConverter::supports_webp(&parts.headers);
     let best_format = crate::imageresizer::WebPConverter::best_supported_format(&parts.headers);
     let headers = parts.headers.clone();
+    let internal_workhorse_upload = parts
+        .extensions
+        .get::<crate::cve_guard::InternalWorkhorseUpload>()
+        .is_some();
 
     let (headers, body) = match crate::cve_guard::guard_repository_write(
         &method,
         &path_str,
         headers,
         body,
+        internal_workhorse_upload,
     )
     .await
     {

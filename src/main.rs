@@ -690,7 +690,8 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/api/v4/projects/:project_id/repository/commits/:sha",
-            get(routes::uploads::handle_repository_commits),
+            get(routes::uploads::handle_repository_commits)
+                .post(routes::uploads::handle_repository_commits),
         )
         .route(
             "/api/v4/projects/:project_id/repository/archive",

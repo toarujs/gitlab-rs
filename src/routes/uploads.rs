@@ -12,6 +12,42 @@ use uuid::Uuid;
 
 const UPLOAD_MAX_SIZE: usize = 100 * 1024 * 1024; // 100MB
 
+/// True when the request hits the collection `POST /repository/commits`
+/// endpoint, which Rails serves through Workhorse's request-body uploader.
+fn is_commits_body_upload(path: &str) -> bool {
+    crate::cve_guard::normalize_api_path(path).ends_with("/repository/commits")
+}
+
+/// True when the request hits a `POST`/`PUT /repository/files/:path` write,
+/// which likewise needs the Workhorse body uploader. The internal
+/// `.../authorize` sub-endpoint is excluded so a direct client call is proxied
+/// to Rails untouched instead of being authorized recursively.
+fn is_files_body_upload(path: &str) -> bool {
+    let normalized = crate::cve_guard::normalize_api_path(path).to_ascii_lowercase();
+    normalized.contains("/repository/files/") && !normalized.ends_with("/authorize")
+}
+
+/// Buffer the client body to a temp file and rewrite it into the signed
+/// `file.*` form Rails' commits/files write API expects.
+async fn handle_repository_body_upload(
+    state: crate::state::AppState,
+    req: Request<Body>,
+) -> Response {
+    let (parts, body) = req.into_parts();
+    let method = parts.method.clone();
+    let path = parts.uri.path().to_string();
+    // Inspect the original client body before buffering it; the guard rejects
+    // client-injected workhorse upload path fields.
+    let (headers, body) =
+        match crate::cve_guard::guard_repository_write(&method, &path, parts.headers, body, false)
+            .await
+        {
+            Ok(pair) => pair,
+            Err(status) => return (status, "").into_response(),
+        };
+    crate::upload::request_body::accelerate_request_body(state, method, parts.uri, headers, body).await
+}
+
 pub async fn handle_project_upload(
     State(state): State<crate::state::AppState>,
     req: Request<Body>,
@@ -136,6 +172,8 @@ pub async fn handle_repository_commits(
                 );
             }
         }
+    } else if req.method() == Method::POST && is_commits_body_upload(req.uri().path()) {
+        return handle_repository_body_upload(state, req).await;
     }
     match proxy::proxy_handler(State(state), req).await {
         Ok(resp) => resp,
@@ -223,6 +261,10 @@ pub async fn handle_repository_files(
                 );
             }
         }
+    } else if (method == Method::POST || method == Method::PUT)
+        && is_files_body_upload(req.uri().path())
+    {
+        return handle_repository_body_upload(state, req).await;
     }
     match proxy::proxy_handler(State(state), req).await {
         Ok(resp) => resp,

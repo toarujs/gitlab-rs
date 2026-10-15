@@ -1424,10 +1424,17 @@ fn can_push_to_branch(
     if identity.user_id.is_none() {
         return false;
     }
-    let access = access.unwrap_or(0);
     if !is_protected {
+        // Unprotected branches: Rails checks the :push_code ability, which admins
+        // hold globally even without a project membership row.
+        let access = if identity.admin {
+            acl::ACCESS_OWNER
+        } else {
+            access.unwrap_or(0)
+        };
         return access >= ACCESS_DEVELOPER;
     }
+    let access = access.unwrap_or(0);
     matched.iter().any(|rule| {
         rule.push_levels
             .iter()
@@ -1533,16 +1540,23 @@ fn utf8_lossy(bytes: &[u8]) -> String {
 }
 
 pub fn commit_list_item(commit: &GitCommit, web_base: &str, full_path: &str) -> CommitListItem {
-    let title = utf8_lossy(&commit.subject).trim_end_matches('\n').to_string();
-    let message = if commit.body.is_empty() {
-        if title.is_empty() {
-            String::new()
-        } else {
-            format!("{title}\n")
-        }
+    // Gitaly's `subject` is git's `%s`, which folds the whole first paragraph
+    // (no blank line) into one line. GitLab's API exposes `full_title`, the
+    // first physical line of the raw message, so derive the title from the
+    // message body (Gitaly's `body` is the full raw commit message).
+    let raw_message = if commit.body.is_empty() {
+        utf8_lossy(&commit.subject).to_string()
     } else {
-        utf8_lossy(&commit.body)
+        utf8_lossy(&commit.body).to_string()
     };
+    let title = raw_message
+        .split(['\n', '\r'])
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    // GitLab's `message` (`safe_message`) is the raw message verbatim, including
+    // any trailing newline (or its absence).
+    let message = raw_message;
     let (author_name, author_email, authored_date) = author_fields(commit.author.as_ref());
     let (committer_name, committer_email, committed_date) = author_fields(commit.committer.as_ref());
     let web_url = commit_web_url(web_base, full_path, &commit.id);
@@ -2243,7 +2257,7 @@ production:
     }
 
     #[test]
-    fn can_push_matches_membership_not_admin_flag() {
+    fn can_push_matches_rails_semantics() {
         let admin = auth::Identity {
             user_id: Some(1),
             external: false,
@@ -2260,10 +2274,37 @@ production:
             merge_levels: vec![40],
         };
         let matched = vec![&rule];
+        // Admin can push to unprotected branches via the global :push_code ability,
+        // but protected branches stay membership-based (matches Rails).
+        assert!(can_push_to_branch(&admin, None, false, &[]));
         assert!(!can_push_to_branch(&admin, None, true, &matched));
         assert!(!can_push_to_branch(&guest, Some(30), true, &matched));
         assert!(can_push_to_branch(&guest, Some(40), true, &matched));
         assert!(can_push_to_branch(&guest, Some(30), false, &[]));
         assert!(!can_push_to_branch(&auth::Identity::anonymous(), None, false, &[]));
+    }
+
+    #[test]
+    fn commit_title_uses_first_physical_line() {
+        // Gitaly folds the first paragraph into `subject`; the title must come
+        // from the raw message's first line, matching GitLab's `full_title`.
+        let commit = GitCommit {
+            id: "abc".to_string(),
+            subject: b"feat: x Co-authored-by: a <a@b>".to_vec(),
+            body: b"feat: x\nCo-authored-by: a <a@b>\n".to_vec(),
+            ..Default::default()
+        };
+        let item = commit_list_item(&commit, "https://example", "g/p");
+        assert_eq!(item.title, "feat: x");
+        assert_eq!(item.message, "feat: x\nCo-authored-by: a <a@b>\n");
+
+        let single = GitCommit {
+            id: "def".to_string(),
+            subject: b"just one line".to_vec(),
+            ..Default::default()
+        };
+        let item = commit_list_item(&single, "https://example", "g/p");
+        assert_eq!(item.title, "just one line");
+        assert_eq!(item.message, "just one line");
     }
 }

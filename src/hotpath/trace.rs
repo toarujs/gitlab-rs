@@ -33,20 +33,21 @@ pub struct TraceRequest {
     pub project_id: String,
     pub job_id: i64,
     pub head_only: bool,
-    pub offset: Option<u64>,
+    pub byte_offset: Option<u64>,
+    pub byte_limit: Option<u64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ByteSpan {
-    pub start: u64,
-    pub end: u64,
-}
+/// Upper bound the GitLab trace API accepts for `byte_limit`
+/// (`Gitlab::Ci::Trace::Stream::LIMIT_SIZE`, 500 KiB).
+pub const MAX_TRACE_BYTE_LIMIT: u64 = 512_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ParsedRange {
+pub enum TraceRange {
+    /// Full trace (no range params), matching `Ci::Trace#raw`.
     All,
-    Span(ByteSpan),
-    Unsatisfiable,
+    /// Byte window `start..start+len` (len may be 0), matching
+    /// `Ci::Trace#raw_range(byte_offset:, byte_limit:)`.
+    Span { start: u64, len: u64 },
 }
 
 pub fn parse_trace_request(
@@ -76,77 +77,59 @@ pub fn parse_trace_request(
     let job_id = job_id_str
         .parse::<i64>()
         .map_err(|_| "invalid job id".to_string())?;
+    let (byte_offset, byte_limit) = parse_byte_range(query)?;
     Ok(TraceRequest {
         project_id: percent_decode(project_id),
         job_id,
         head_only: method == Method::HEAD,
-        offset: query_u64(query, "offset"),
+        byte_offset,
+        byte_limit,
     })
 }
 
-/// Parse RFC 7233 `Range: bytes=` or GitLab poll `offset=` against `file_len`.
-pub fn resolve_range(
-    range_header: Option<&str>,
-    offset: Option<u64>,
-    file_len: u64,
-) -> ParsedRange {
-    if let Some(header) = range_header {
-        if let Some(parsed) = parse_range_header(header, file_len) {
-            return parsed;
+/// Parse the optional `byte_offset` / `byte_limit` params of the GitLab trace
+/// API. Invalid values are rejected so the caller falls back to Rails, which
+/// returns the same 400 the upstream API does.
+fn parse_byte_range(query: Option<&str>) -> Result<(Option<u64>, Option<u64>), String> {
+    let byte_offset = match query_param(query, "byte_offset") {
+        Some(raw) => Some(
+            raw.trim()
+                .parse::<u64>()
+                .map_err(|_| "invalid byte_offset".to_string())?,
+        ),
+        None => None,
+    };
+    let byte_limit = match query_param(query, "byte_limit") {
+        Some(raw) => {
+            let value = raw
+                .trim()
+                .parse::<u64>()
+                .map_err(|_| "invalid byte_limit".to_string())?;
+            if value == 0 || value > MAX_TRACE_BYTE_LIMIT {
+                return Err("invalid byte_limit".to_string());
+            }
+            Some(value)
         }
-    }
-    if let Some(off) = offset {
-        if file_len == 0 {
-            return if off == 0 {
-                ParsedRange::All
-            } else {
-                ParsedRange::Unsatisfiable
-            };
-        }
-        if off >= file_len {
-            return ParsedRange::Unsatisfiable;
-        }
-        return ParsedRange::Span(ByteSpan {
-            start: off,
-            end: file_len - 1,
-        });
-    }
-    ParsedRange::All
+        None => None,
+    };
+    Ok((byte_offset, byte_limit))
 }
 
-pub fn parse_range_header(value: &str, file_len: u64) -> Option<ParsedRange> {
-    let spec = value.trim().strip_prefix("bytes=")?.trim();
-    let spec = spec.split(',').next()?.trim();
-    let (start, end) = spec.split_once('-')?;
-    let start = start.trim();
-    let end = end.trim();
-    if start.is_empty() && end.is_empty() {
-        return None;
+/// Resolve the window `raw_range` would read from a `file_len`-byte trace.
+/// `byte_offset` is clamped to EOF and `byte_limit` is a maximum, so an
+/// over-long limit simply reads to EOF.
+pub fn resolve_trace_range(
+    byte_offset: Option<u64>,
+    byte_limit: Option<u64>,
+    file_len: u64,
+) -> TraceRange {
+    if byte_offset.is_none() && byte_limit.is_none() {
+        return TraceRange::All;
     }
-    if start.is_empty() {
-        let n: u64 = end.parse().ok()?;
-        if n == 0 || file_len == 0 {
-            return Some(ParsedRange::Unsatisfiable);
-        }
-        let n = n.min(file_len);
-        return Some(ParsedRange::Span(ByteSpan {
-            start: file_len - n,
-            end: file_len - 1,
-        }));
-    }
-    let start: u64 = start.parse().ok()?;
-    if file_len == 0 || start >= file_len {
-        return Some(ParsedRange::Unsatisfiable);
-    }
-    let end = if end.is_empty() {
-        file_len - 1
-    } else {
-        end.parse::<u64>().ok()?.min(file_len - 1)
-    };
-    if end < start {
-        return Some(ParsedRange::Unsatisfiable);
-    }
-    Some(ParsedRange::Span(ByteSpan { start, end }))
+    let start = byte_offset.unwrap_or(0).min(file_len);
+    let remaining = file_len - start;
+    let len = byte_limit.map_or(remaining, |limit| limit.min(remaining));
+    TraceRange::Span { start, len }
 }
 
 pub fn artifacts_disk_hash(project_id: i64) -> String {
@@ -209,18 +192,6 @@ pub fn live_trace_paths(
 
 pub fn select_local_trace(candidates: &[PathBuf]) -> Option<PathBuf> {
     candidates.iter().find(|p| p.is_file()).cloned()
-}
-
-pub fn job_token_from_headers(headers: &HeaderMap, query: Option<&str>) -> Option<String> {
-    if let Some(v) = headers
-        .get("JOB-TOKEN")
-        .and_then(|v| v.to_str().ok())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        return Some(v.to_string());
-    }
-    query_param(query, "job_token").filter(|s| !s.is_empty())
 }
 
 pub fn accelerate<'a>(
@@ -336,12 +307,14 @@ async fn accelerate_inner(state: &AppState, req: &super::CapturedRequest) -> Acc
         };
     };
 
-    let range_header = req
-        .headers
-        .get(header::RANGE)
-        .and_then(|v| v.to_str().ok());
-    match serve_trace_file(&path, range_header, parsed.offset, parsed.head_only, &job.status)
-        .await
+    match serve_trace_file(
+        &path,
+        parsed.byte_offset,
+        parsed.byte_limit,
+        parsed.head_only,
+        job.job_id,
+    )
+    .await
     {
         Ok(resp) => AccelResult::Hit(resp),
         Err(e) => record_error(state, &format!("read trace: {e}")),
@@ -388,7 +361,6 @@ struct ProjectRow {
 struct JobRow {
     project_id: i64,
     job_id: i64,
-    status: String,
     job_created: Option<SystemTime>,
     artifact_id: Option<i64>,
     artifact_created: Option<SystemTime>,
@@ -454,82 +426,57 @@ fn trace_candidates(job: &JobRow) -> Vec<PathBuf> {
 
 async fn serve_trace_file(
     path: &Path,
-    range_header: Option<&str>,
-    offset: Option<u64>,
+    byte_offset: Option<u64>,
+    byte_limit: Option<u64>,
     head_only: bool,
-    job_status: &str,
+    job_id: i64,
 ) -> Result<Response, String> {
     let meta = tokio::fs::metadata(path)
         .await
         .map_err(|e| e.to_string())?;
     let file_len = meta.len();
-    let range = resolve_range(range_header, offset, file_len);
-    Ok(trace_response(path, file_len, range, head_only, job_status).await?)
+    let range = resolve_trace_range(byte_offset, byte_limit, file_len);
+    trace_response(path, file_len, range, head_only, job_id).await
 }
 
 async fn trace_response(
     path: &Path,
     file_len: u64,
-    range: ParsedRange,
+    range: TraceRange,
     head_only: bool,
-    job_status: &str,
+    job_id: i64,
 ) -> Result<Response, String> {
     let mut headers = HeaderMap::new();
     headers.insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_static("text/plain; charset=utf-8"),
-    );
-    headers.insert(
-        header::ACCEPT_RANGES,
-        HeaderValue::from_static("bytes"),
+        HeaderValue::from_static("text/plain"),
     );
     headers.insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static("no-cache"),
     );
-    if !job_status.is_empty() {
-        if let Ok(v) = HeaderValue::from_str(job_status) {
-            headers.insert("job-status", v);
-        }
+    // Mirrors the API's `Content-Disposition: infile; filename="<id>.log"`.
+    if let Ok(v) = HeaderValue::from_str(&format!("infile; filename=\"{job_id}.log\"")) {
+        headers.insert(header::CONTENT_DISPOSITION, v);
     }
 
-    match range {
-        ParsedRange::Unsatisfiable => {
-            let cr = format!("bytes */{file_len}");
-            if let Ok(v) = HeaderValue::from_str(&cr) {
-                headers.insert(header::CONTENT_RANGE, v);
-            }
-            headers.insert(header::CONTENT_LENGTH, HeaderValue::from_static("0"));
-            Ok((StatusCode::RANGE_NOT_SATISFIABLE, headers).into_response())
-        }
-        ParsedRange::All => {
-            headers.insert(
-                header::CONTENT_LENGTH,
-                HeaderValue::from_str(&file_len.to_string()).unwrap_or(HeaderValue::from_static("0")),
-            );
-            if head_only || file_len == 0 {
-                return Ok((StatusCode::OK, headers).into_response());
-            }
-            let body = file_body(path, 0, file_len).await?;
-            Ok((StatusCode::OK, headers, body).into_response())
-        }
-        ParsedRange::Span(span) => {
-            let len = span.end.saturating_sub(span.start).saturating_add(1);
-            let cr = format!("bytes {}-{}/{}", span.start, span.end, file_len);
-            if let Ok(v) = HeaderValue::from_str(&cr) {
-                headers.insert(header::CONTENT_RANGE, v);
-            }
-            headers.insert(
-                header::CONTENT_LENGTH,
-                HeaderValue::from_str(&len.to_string()).unwrap_or(HeaderValue::from_static("0")),
-            );
-            if head_only || len == 0 {
-                return Ok((StatusCode::PARTIAL_CONTENT, headers).into_response());
-            }
-            let body = file_body(path, span.start, len).await?;
-            Ok((StatusCode::PARTIAL_CONTENT, headers, body).into_response())
-        }
+    let (start, len) = match range {
+        TraceRange::All => (0, file_len),
+        TraceRange::Span { start, len } => (start, len),
+    };
+    // Upstream omits Content-Length on HEAD (Rack streams the body), so only
+    // set it on GET to stay byte-for-byte aligned with the Rails response.
+    if !head_only {
+        headers.insert(
+            header::CONTENT_LENGTH,
+            HeaderValue::from_str(&len.to_string()).unwrap_or(HeaderValue::from_static("0")),
+        );
     }
+    if head_only || len == 0 {
+        return Ok((StatusCode::OK, headers).into_response());
+    }
+    let body = file_body(path, start, len).await?;
+    Ok((StatusCode::OK, headers, body).into_response())
 }
 
 async fn file_body(path: &Path, start: u64, len: u64) -> Result<Body, String> {
@@ -640,7 +587,7 @@ async fn query_job(
         ("ci_builds", "ci_job_artifacts")
     };
     let sql = format!(
-        "SELECT b.id, b.project_id, b.status, b.created_at,
+        "SELECT b.id, b.project_id, b.created_at,
                 a.id, a.file, a.file_final_path, a.created_at, a.file_store
          FROM {builds} b
          LEFT JOIN {artifacts} a
@@ -658,7 +605,7 @@ async fn query_job(
 
 fn job_from_row(row: &tokio_postgres::Row) -> JobRow {
     let filename = row
-        .try_get::<_, Option<String>>(5)
+        .try_get::<_, Option<String>>(4)
         .ok()
         .flatten()
         .filter(|s| !s.is_empty())
@@ -666,13 +613,12 @@ fn job_from_row(row: &tokio_postgres::Row) -> JobRow {
     JobRow {
         job_id: pg_i64(row, 0),
         project_id: pg_i64(row, 1),
-        status: pg_status(row, 2),
-        job_created: pg_time(row, 3),
-        artifact_id: pg_opt_i64(row, 4),
+        job_created: pg_time(row, 2),
+        artifact_id: pg_opt_i64(row, 3),
         filename: safe_filename(&filename).to_string(),
-        file_final_path: row.try_get::<_, Option<String>>(6).ok().flatten(),
-        artifact_created: pg_time(row, 7),
-        file_store: pg_opt_i32(row, 8),
+        file_final_path: row.try_get::<_, Option<String>>(5).ok().flatten(),
+        artifact_created: pg_time(row, 6),
+        file_store: pg_opt_i32(row, 7),
     }
 }
 
@@ -726,16 +672,6 @@ fn pg_bool(row: &tokio_postgres::Row, idx: usize, default: bool) -> bool {
     default
 }
 
-fn pg_status(row: &tokio_postgres::Row, idx: usize) -> String {
-    if let Ok(s) = row.try_get::<_, String>(idx) {
-        return s;
-    }
-    if let Ok(s) = row.try_get::<_, Option<String>>(idx) {
-        return s.unwrap_or_default();
-    }
-    String::new()
-}
-
 fn pg_time(row: &tokio_postgres::Row, idx: usize) -> Option<SystemTime> {
     row.try_get::<_, SystemTime>(idx)
         .ok()
@@ -785,10 +721,6 @@ fn query_param(query: Option<&str>, key: &str) -> Option<String> {
     None
 }
 
-fn query_u64(query: Option<&str>, key: &str) -> Option<u64> {
-    query_param(query, key)?.parse().ok()
-}
-
 fn percent_decode(input: &str) -> String {
     let bytes = input.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -818,12 +750,13 @@ mod tests {
         let req = parse_trace_request(
             &Method::GET,
             "/api/v4/projects/14/jobs/19/trace",
-            Some("offset=10"),
+            Some("byte_offset=10&byte_limit=5"),
         )
         .unwrap();
         assert_eq!(req.project_id, "14");
         assert_eq!(req.job_id, 19);
-        assert_eq!(req.offset, Some(10));
+        assert_eq!(req.byte_offset, Some(10));
+        assert_eq!(req.byte_limit, Some(5));
         assert!(!req.head_only);
     }
 
@@ -844,66 +777,55 @@ mod tests {
     }
 
     #[test]
-    fn parse_range_open_end() {
-        let r = resolve_range(Some("bytes=10-"), None, 100);
+    fn reject_invalid_byte_params() {
+        // Falls back to Rails, which returns the upstream 400 body.
+        for query in [
+            "byte_offset=-1",
+            "byte_offset=abc",
+            "byte_limit=0",
+            "byte_limit=512001",
+            "byte_limit=abc",
+        ] {
+            assert!(
+                parse_trace_request(&Method::GET, "/api/v4/projects/14/jobs/19/trace", Some(query))
+                    .is_err(),
+                "{query} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn byte_range_clamps_offset_and_limit() {
+        // byte_offset alone reads to EOF.
         assert_eq!(
-            r,
-            ParsedRange::Span(ByteSpan {
-                start: 10,
-                end: 99
-            })
+            resolve_trace_range(Some(50), None, 100),
+            TraceRange::Span { start: 50, len: 50 }
+        );
+        // byte_limit alone starts at 0.
+        assert_eq!(
+            resolve_trace_range(None, Some(10), 100),
+            TraceRange::Span { start: 0, len: 10 }
+        );
+        // over-long limit reads to EOF (limit is a maximum).
+        assert_eq!(
+            resolve_trace_range(Some(5), Some(99999), 100),
+            TraceRange::Span { start: 5, len: 95 }
+        );
+        // offset beyond EOF yields an empty window, not an error.
+        assert_eq!(
+            resolve_trace_range(Some(100), None, 100),
+            TraceRange::Span { start: 100, len: 0 }
+        );
+        assert_eq!(
+            resolve_trace_range(Some(9999), Some(10), 100),
+            TraceRange::Span { start: 100, len: 0 }
         );
     }
 
     #[test]
-    fn parse_range_closed_and_suffix() {
-        assert_eq!(
-            resolve_range(Some("bytes=0-9"), None, 100),
-            ParsedRange::Span(ByteSpan { start: 0, end: 9 })
-        );
-        assert_eq!(
-            resolve_range(Some("bytes=-10"), None, 100),
-            ParsedRange::Span(ByteSpan {
-                start: 90,
-                end: 99
-            })
-        );
-    }
-
-    #[test]
-    fn parse_range_unsatisfiable() {
-        assert_eq!(
-            resolve_range(Some("bytes=100-"), None, 100),
-            ParsedRange::Unsatisfiable
-        );
-        assert_eq!(
-            resolve_range(Some("bytes=0-"), None, 0),
-            ParsedRange::Unsatisfiable
-        );
-    }
-
-    #[test]
-    fn offset_query_is_poll_range() {
-        assert_eq!(
-            resolve_range(None, Some(50), 100),
-            ParsedRange::Span(ByteSpan {
-                start: 50,
-                end: 99
-            })
-        );
-        assert_eq!(
-            resolve_range(None, Some(100), 100),
-            ParsedRange::Unsatisfiable
-        );
-        assert_eq!(resolve_range(None, None, 100), ParsedRange::All);
-    }
-
-    #[test]
-    fn range_header_wins_over_offset() {
-        assert_eq!(
-            resolve_range(Some("bytes=2-4"), Some(50), 100),
-            ParsedRange::Span(ByteSpan { start: 2, end: 4 })
-        );
+    fn no_byte_params_reads_all() {
+        assert_eq!(resolve_trace_range(None, None, 100), TraceRange::All);
+        assert_eq!(resolve_trace_range(None, None, 0), TraceRange::All);
     }
 
     #[test]
@@ -973,20 +895,6 @@ mod tests {
         let hashed = paths[0].to_string_lossy();
         assert!(hashed.contains(&format!("/{}/{}/{}", &hash[..2], &hash[2..4], hash)));
         assert!(hashed.ends_with("/2026_09_08/19/42/job.log"));
-    }
-
-    #[test]
-    fn job_token_from_header_and_query() {
-        let mut headers = HeaderMap::new();
-        headers.insert("JOB-TOKEN", HeaderValue::from_static("abc"));
-        assert_eq!(
-            job_token_from_headers(&headers, None).as_deref(),
-            Some("abc")
-        );
-        assert_eq!(
-            job_token_from_headers(&HeaderMap::new(), Some("job_token=xyz")).as_deref(),
-            Some("xyz")
-        );
     }
 
     #[test]

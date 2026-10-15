@@ -162,6 +162,10 @@ pub async fn accelerate_request_body(
     *req.method_mut() = method;
     *req.uri_mut() = uri;
     *req.headers_mut() = out;
+    // Tell the CVE guard this rewritten `file.*` form came from our own
+    // uploader, not from a client injecting an arbitrary upload path.
+    req.extensions_mut()
+        .insert(crate::cve_guard::InternalWorkhorseUpload);
 
     // `Box::pin` breaks the async recursion: the LFS path dispatches here from
     // inside `proxy_handler` itself, and the rewritten request is then proxied

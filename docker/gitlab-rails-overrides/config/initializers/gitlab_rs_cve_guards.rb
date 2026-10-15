@@ -9,6 +9,7 @@ module GitlabRsUploadedFilePathGuard
     /var/opt/gitlab/gitlab-rails/shared
     /var/opt/gitlab/gitlab-rails/tmp
     /opt/gitlab/embedded/service/gitlab-rails/tmp
+    /opt/gitlab/embedded/service/gitlab-rails/public/uploads/tmp
   ].freeze
 
   def from_params(*args, **kwargs)
