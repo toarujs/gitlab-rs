@@ -1,6 +1,7 @@
 //! Decode `_gitlab_session` into a Rails user id.
 
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 /// Extract the GitLab session id from a Cookie header.
 pub fn session_id_from_cookie_header(cookie: &str) -> Option<String> {
@@ -19,12 +20,26 @@ pub fn session_id_from_cookie_header(cookie: &str) -> Option<String> {
     None
 }
 
+/// Cache keys under which Rails may store the session.
+///
+/// `Gitlab::Sessions::CacheStore` keys by `Rack::Session::SessionId#private_id`,
+/// which is `"2::" + SHA256.hexdigest(public_id)`. The cookie carries the
+/// `public_id`, so the raw cookie value never matches a stored key — the digest
+/// must be derived first. The legacy `RedisStore` key (`namespace:public_id`)
+/// and the bare id are kept for compatibility with sessions written before the
+/// CacheStore migration.
 pub fn redis_session_keys(session_id: &str) -> Vec<String> {
+    let private_id = format!("2::{}", sha256_hex(session_id));
     vec![
+        format!("session:gitlab:{}", private_id),
         format!("session:gitlab:{}", session_id),
         format!("session:gitlab:2::{}", session_id),
         session_id.to_string(),
     ]
+}
+
+fn sha256_hex(input: &str) -> String {
+    hex::encode(Sha256::digest(input.as_bytes()))
 }
 
 /// Pull `user_id` out of a Redis session payload (JSON or Ruby Marshal).
@@ -155,5 +170,16 @@ mod tests {
     fn missing_session_is_none() {
         assert_eq!(session_id_from_cookie_header("foo=bar"), None);
         assert_eq!(user_id_from_session_bytes(b"not a session"), None);
+    }
+
+    #[test]
+    fn redis_keys_use_rack_private_id() {
+        // Rack::Session::SessionId::ID_VERSION = 2, private_id = "2::" + SHA256(public_id).
+        // Known vector: sha256("abc") = ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad.
+        let keys = redis_session_keys("abc");
+        assert_eq!(
+            keys[0],
+            "session:gitlab:2::ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
     }
 }

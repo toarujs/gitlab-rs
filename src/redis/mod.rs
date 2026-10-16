@@ -2,7 +2,8 @@
 use redis::aio::ConnectionManager;
 use redis::AsyncCommands;
 use futures_util::StreamExt;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{error, info};
@@ -38,7 +39,32 @@ impl RedisClient {
         }
     }
 
+    /// Process-wide, connected client per URL.
+    ///
+    /// Session auth used to build and connect a fresh `ConnectionManager` on
+    /// every request. A `ConnectionManager` multiplexes and auto-reconnects, so
+    /// one per URL can be shared safely.
+    pub async fn shared(url: &str) -> Result<RedisClient, String> {
+        static SHARED: OnceLock<Mutex<HashMap<String, RedisClient>>> = OnceLock::new();
+        let cache = SHARED.get_or_init(|| Mutex::new(HashMap::new()));
+
+        let existing = cache.lock().unwrap().get(url).cloned();
+        if let Some(client) = existing {
+            if client.is_connected().await {
+                return Ok(client);
+            }
+        }
+
+        let client = RedisClient::new(url.to_string());
+        client.connect().await?;
+        cache.lock().unwrap().insert(url.to_string(), client.clone());
+        Ok(client)
+    }
+
     pub async fn connect(&self) -> Result<(), String> {
+        if self.manager.read().await.is_some() {
+            return Ok(());
+        }
         let client = redis::Client::open(self.url.as_str())
             .map_err(|e| format!("redis client error: {}", e))?;
 
@@ -47,7 +73,9 @@ impl RedisClient {
             .map_err(|e| format!("redis connection error: {}", e))?;
 
         let mut guard = self.manager.write().await;
-        *guard = Some(manager);
+        if guard.is_none() {
+            *guard = Some(manager);
+        }
         info!("Redis connected successfully");
         Ok(())
     }

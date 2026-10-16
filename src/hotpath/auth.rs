@@ -265,8 +265,7 @@ async fn lookup_session_identity(
 }
 
 async fn load_session_user_id(redis_url: &str, session_id: &str) -> Result<Option<i64>, String> {
-    let client = RedisClient::new(redis_url.to_string());
-    client.connect().await?;
+    let client = RedisClient::shared(redis_url).await?;
     for key in session::redis_session_keys(session_id) {
         if let Some(bytes) = client.get_bytes(&key).await? {
             if let Some(id) = session::user_id_from_session_bytes(&bytes) {
