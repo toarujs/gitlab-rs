@@ -13,3 +13,4 @@ pub mod ssh_git;
 pub mod terraform;
 pub mod uploads;
 pub mod wiki;
+pub mod user;

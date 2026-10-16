@@ -941,12 +941,12 @@ fn parse_per_page(value: &str) -> Result<u32, String> {
     Ok(n.min(MAX_PER_PAGE))
 }
 
-const GITLAB_YML_PATHS: [&str; 2] = [
+pub const GITLAB_YML_PATHS: [&str; 2] = [
     "/var/opt/gitlab/gitlab-rails/etc/gitlab.yml",
     "/opt/gitlab/embedded/service/gitlab-rails/config/gitlab.yml",
 ];
 
-fn site_urls() -> Option<SiteUrls> {
+pub fn site_urls() -> Option<SiteUrls> {
     for path in GITLAB_YML_PATHS {
         if let Ok(text) = std::fs::read_to_string(path) {
             if let Some(urls) = SiteUrls::from_yml(&text) {

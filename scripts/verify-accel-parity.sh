@@ -69,6 +69,13 @@ PY
 
 J="/api/v4/projects/$PROJECT_ID/jobs/$JOB_ID/trace"
 
+# --- current user contract (authenticated) ---
+#
+# `/api/v4/user` renders a different Grape entity for admins
+# (`UserWithAdmin`, 42 fields) than for regular users (`UserPublic`, 38
+# fields), so exercise both by passing tokens from different accounts.
+compare "current user (admin)"  "/api/v4/user"
+
 # --- API trace contract (accelerated) ---
 compare "trace full"            "$J" bytes
 compare "trace offset0 limit120" "$J?byte_offset=0&byte_limit=120" bytes

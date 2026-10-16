@@ -808,6 +808,12 @@ async fn main() -> anyhow::Result<()> {
             put(routes::uploads::handle_avatar_upload),
         )
         .route(
+            "/api/v4/user",
+            get(routes::user::handle_current_user)
+                .put(proxy::proxy_handler)
+                .delete(proxy::proxy_handler),
+        )
+        .route(
             "/api/v4/users",
             get(proxy::proxy_handler)
                 .post(proxy::proxy_handler)

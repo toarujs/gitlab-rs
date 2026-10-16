@@ -16,9 +16,11 @@ pub mod session;
 pub mod trace;
 pub mod projects;
 pub mod repo;
+pub mod user;
 
 pub const FILES_PATH_TEMPLATE: &str = "/api/v4/projects/:id/repository/files/*";
 pub const TRACE_PATH_TEMPLATE: &str = "/api/v4/projects/:id/jobs/:id/trace";
+pub const CURRENT_USER_PATH_TEMPLATE: &str = "/api/v4/user";
 pub const PROJECTS_PATH_TEMPLATE: &str = "/api/v4/projects";
 pub const PROJECT_SHOW_PATH_TEMPLATE: &str = "/api/v4/projects/:id";
 pub const TREE_PATH_TEMPLATE: &str = "/api/v4/projects/:id/repository/tree";
