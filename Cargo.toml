@@ -84,6 +84,9 @@ prometheus = "0.13"
 # CLI
 clap = { version = "4", features = ["derive"] }
 
+# Process management (reaping orphaned child processes as container PID 1)
+libc = "0.2"
+
 # Encoding
 hex = "0.4"
 md5 = "0.7"

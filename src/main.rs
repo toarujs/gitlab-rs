@@ -335,6 +335,47 @@ async fn shutdown_signal() {
     tracing::info!("Shutdown signal received, starting graceful shutdown");
 }
 
+/// Reap orphaned child processes.
+///
+/// In the container this binary is the final `exec` target of
+/// `docker/entrypoint-server.sh`, so it becomes PID 1 while `runsvdir` supervises
+/// the GitLab services (including sshd). sshd re-execs a fresh process for each
+/// session and exits the intermediate child immediately, which leaves the session
+/// process orphaned and reparented to PID 1. PID 1 is responsible for reaping
+/// such processes; if it does not, the zombies accumulate until the container's
+/// PID limit is exhausted and every `fork()` fails with `Cannot fork` / `Resource
+/// temporarily unavailable`. The Rust workhorse spawns no children of its own, so
+/// a single global `waitpid` loop is safe.
+#[cfg(unix)]
+fn spawn_child_reaper() {
+    use std::time::Duration;
+
+    // Adopt orphaned descendants even when not running as PID 1 (e.g. behind an
+    // init such as tini), so the behaviour is the same across deployments.
+    unsafe {
+        libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1 as libc::c_ulong);
+    }
+
+    std::thread::Builder::new()
+        .name("child-reaper".into())
+        .spawn(|| loop {
+            let mut status: libc::c_int = 0;
+            let reaped = unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) };
+            match reaped {
+                // Reaped a terminated descendant (typically an sshd session).
+                pid if pid > 0 => tracing::debug!("Reaped child process {}", pid),
+                // 0 means children exist but none have exited yet; -1 means there
+                // are no children or the call was interrupted. Either way, back off
+                // instead of busy-looping.
+                _ => std::thread::sleep(Duration::from_secs(1)),
+            }
+        })
+        .expect("failed to spawn child reaper thread");
+}
+
+#[cfg(not(unix))]
+fn spawn_child_reaper() {}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Go workhorse uses the stdlib flag package, so GitLab Rails calls `-version`.
@@ -353,6 +394,8 @@ async fn main() -> anyhow::Result<()> {
     let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into());
     let json_format = cli.log_format == "json";
     logging::init_logging(&log_level, json_format);
+
+    spawn_child_reaper();
 
     let resolved_backend = resolve_auth_backend(&cli.auth_backend, &cli.auth_socket);
     let _resolved_cable = cli
