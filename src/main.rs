@@ -616,7 +616,7 @@ async fn main() -> anyhow::Result<()> {
         // Git LFS
         .route(
             "/api/v4/projects/:project_id/lfs/objects/*path",
-            put(routes::git_lfs::handle_lfs_upload),
+            put(routes::git_lfs::handle_lfs_upload).fallback(proxy::proxy_handler),
         )
         // CI long polling
         .route(
@@ -727,11 +727,11 @@ async fn main() -> anyhow::Result<()> {
         // Repository API
         .route(
             "/api/v4/projects/:project_id/repository/tree",
-            get(routes::uploads::handle_repository_tree),
+            get(routes::uploads::handle_repository_tree).fallback(proxy::proxy_handler),
         )
         .route(
             "/api/v4/projects/:project_id/repository/branches",
-            get(routes::uploads::handle_repository_branches),
+            get(routes::uploads::handle_repository_branches).fallback(proxy::proxy_handler),
         )
         .route(
             "/api/v4/projects/:project_id/repository/commits",
@@ -745,39 +745,39 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/api/v4/projects/:project_id/repository/archive",
-            get(routes::uploads::handle_repository_archive),
+            get(routes::uploads::handle_repository_archive).fallback(proxy::proxy_handler),
         )
         .route(
             "/api/v4/projects/:project_id/repository/archive.zip",
-            get(routes::uploads::handle_repository_archive),
+            get(routes::uploads::handle_repository_archive).fallback(proxy::proxy_handler),
         )
         .route(
             "/api/v4/projects/:project_id/repository/archive.tar",
-            get(routes::uploads::handle_repository_archive),
+            get(routes::uploads::handle_repository_archive).fallback(proxy::proxy_handler),
         )
         .route(
             "/api/v4/projects/:project_id/repository/archive.tar.gz",
-            get(routes::uploads::handle_repository_archive),
+            get(routes::uploads::handle_repository_archive).fallback(proxy::proxy_handler),
         )
         .route(
             "/api/v4/projects/:project_id/repository/archive.tgz",
-            get(routes::uploads::handle_repository_archive),
+            get(routes::uploads::handle_repository_archive).fallback(proxy::proxy_handler),
         )
         .route(
             "/api/v4/projects/:project_id/repository/archive.tar.bz2",
-            get(routes::uploads::handle_repository_archive),
+            get(routes::uploads::handle_repository_archive).fallback(proxy::proxy_handler),
         )
         .route(
             "/api/v4/projects/:project_id/repository/archive.tbz",
-            get(routes::uploads::handle_repository_archive),
+            get(routes::uploads::handle_repository_archive).fallback(proxy::proxy_handler),
         )
         .route(
             "/api/v4/projects/:project_id/repository/archive.tbz2",
-            get(routes::uploads::handle_repository_archive),
+            get(routes::uploads::handle_repository_archive).fallback(proxy::proxy_handler),
         )
         .route(
             "/api/v4/projects/:project_id/repository/archive.tb2",
-            get(routes::uploads::handle_repository_archive),
+            get(routes::uploads::handle_repository_archive).fallback(proxy::proxy_handler),
         )
         .route(
             "/api/v4/projects/:project_id/repository/files/*path",
