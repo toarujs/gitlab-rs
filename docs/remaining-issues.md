@@ -22,6 +22,23 @@
 
 ## 其他遗留问题
 
+### 0. 多语言（zh-CN）补全 — 下一版本
+
+**状态**：已完成的 CI/校验文案修复随 19.3.1（2026-10-17）发布；以下残留项暂缓，
+留到下一版本处理。扫描工具已入库，可直接复跑。
+
+| 文件路径 | key / 位置 | 待办说明 |
+| --- | --- | --- |
+| `docker/gitlab-rails-overrides/config/initializers/gitlab_rs_ci_i18n.rb`（及 `-server` 副本） | `GitlabRs::CiI18n::ValidationMessages#message` | 去掉 `:invalid` 特判：改为在 po 中补 `activerecord.errors.messages.invalid`，并确认所有模型走同一路径 |
+| 同上 | `GitlabRs::CiI18n::{CommitStatusMessages,PipelineMessages,FailedStatusMessages,CompletionReasonMessages,PlayManualMessages}` | 用 `scripts/i18n/scan_hardcoded.py` 对新版本 CI 代码复扫，新增/变更的状态文案按 msgid 补翻 |
+| `locale/zh_CN/validation_messages.po.fragment` | `activerecord.attributes.key.fingerprint_sha256` | 现在显示 `Fingerprint sha256`，导致“Fingerprint sha256无法生成”混排；补属性名译文 |
+| 同上 | `activerecord.attributes.application_setting.domain_denylist` | 现在显示 `Domain denylist`，导致“Domain denylist启用...”混排；补属性名译文 |
+| 同上 | `activerecord.errors.messages.invalid` | Rails 的 activerecord 作用域返回英文 `is invalid`，当前靠 initializer 特判绕过；补 po 条目后移除特判 |
+| `locale/zh_CN/ci_messages.po.fragment` | `CI ID token issuance disabled for this project path` 等 116 条 | 仅在 en/ja 回归时复核；新增状态类文案继续追加到此 fragment |
+| `app/services/**`、`app/controllers/**`（上游） | `ServiceResponse.error(message:)`、`render json: { message: ... }` | 这些文案不经过 `ActiveModel::Error`，需要逐处确认是否用户可见，可见的用 `_()`/`s_()` 包裹 |
+| `scripts/i18n/scan_missing.py` | 全量 `app/` 扫描 | 下一版本先跑一遍并对候选分级：用户可见 / 仅日志 / 仅内部异常；只翻用户可见项 |
+| `public/assets/locale/zh_CN/app-*.js.gz` | 前端翻译包 | 服务端修复不影响该独立包；如需补前端文案，按上游前端 i18n 流程更新 |
+
 ### 1. SafeLine WAF 拦截
 
 **问题描述**：SafeLine WAF 拦截外部 HTTPS 访问（9071 端口）
