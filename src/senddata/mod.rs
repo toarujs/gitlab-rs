@@ -137,10 +137,15 @@ pub async fn intercept_send_data(
     let base_headers = crate::forwardheaders::forward_response_headers(headers, None, &[]);
     match (injecter.inject)(json_data, fake_headers).await {
         Ok(response) => Some(merge_injected_response(response, base_headers)),
-        Err(_) => {
+        Err(status) => {
             let mut error_headers = HeaderMap::new();
             error_headers.insert("content-type", "text/plain".parse().unwrap());
-            Some((StatusCode::INTERNAL_SERVER_ERROR, error_headers, "senddata injection failed").into_response())
+            let body = if status == StatusCode::INTERNAL_SERVER_ERROR {
+                "senddata injection failed"
+            } else {
+                status.canonical_reason().unwrap_or("senddata injection failed")
+            };
+            Some((status, error_headers, body).into_response())
         }
     }
 }
@@ -213,6 +218,31 @@ mod tests {
         let found = registry.find("send-data:test:").await;
         assert!(found.is_some());
         assert_eq!(found.unwrap().name, "test");
+    }
+
+    #[tokio::test]
+    async fn test_injector_error_status_is_propagated() {
+        let registry = InjecterRegistry::new();
+        registry
+            .register(Injecter {
+                name: "stub".to_string(),
+                prefix: "send-data:send-file:".to_string(),
+                inject: Arc::new(|_json, _headers| {
+                    Box::pin(async { Err(StatusCode::NOT_FOUND) })
+                }),
+            })
+            .await;
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            SEND_DATA_HEADER,
+            encode_send_data("send-file:", "{}").parse().unwrap(),
+        );
+
+        let response = intercept_send_data(StatusCode::OK, &headers, "", &registry)
+            .await
+            .expect("send-data header should be intercepted");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[test]
