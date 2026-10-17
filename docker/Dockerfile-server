@@ -30,6 +30,8 @@ COPY gitlab-rails-overrides/config/initializers/gitlab_rs_cve_guards.rb \
      /opt/gitlab/embedded/service/gitlab-rails/config/initializers/gitlab_rs_cve_guards.rb
 COPY gitlab-rails-overrides/config/initializers/gitlab_rs_compress_history.rb \
      /opt/gitlab/embedded/service/gitlab-rails/config/initializers/gitlab_rs_compress_history.rb
+COPY gitlab-rails-overrides/config/initializers/gitlab_rs_ci_i18n.rb \
+     /opt/gitlab/embedded/service/gitlab-rails/config/initializers/gitlab_rs_ci_i18n.rb
 COPY gitlab-rails-overrides/app/views/projects/_tree_content.html.haml \
      /opt/gitlab/embedded/service/gitlab-rails/app/views/projects/_tree_content.html.haml
 COPY gitlab-rails-overrides/app/views/projects/_compress_history_mount.html.haml \

@@ -64,6 +64,8 @@ COPY --from=builder /build/docker/gitlab-rails-overrides/config/initializers/dis
      /opt/gitlab/embedded/service/gitlab-rails/config/initializers/disable_official_version_check.rb
 COPY --from=builder /build/docker/gitlab-rails-overrides/config/initializers/gitlab_rs_cve_guards.rb \
      /opt/gitlab/embedded/service/gitlab-rails/config/initializers/gitlab_rs_cve_guards.rb
+COPY --from=builder /build/docker/gitlab-rails-overrides/config/initializers/gitlab_rs_ci_i18n.rb \
+     /opt/gitlab/embedded/service/gitlab-rails/config/initializers/gitlab_rs_ci_i18n.rb
 
 # 设置权限
 RUN chmod +x /opt/gitlab/embedded/bin/gitlab-workhorse && \

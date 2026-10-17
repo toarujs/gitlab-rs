@@ -1,0 +1,239 @@
+msgid "must be at least %{bits} bits"
+msgstr "必须至少为 %{bits} 位"
+
+msgid "type is forbidden. Must be %{types}"
+msgstr "类型被禁止。必须为 %{types}"
+
+msgid "is not a valid SSH key"
+msgstr "不是有效的 SSH 密钥"
+
+msgid "is not a valid RSA key"
+msgstr "不是有效的 RSA 密钥"
+
+msgid "is not a correct duration"
+msgstr "不是有效的时长"
+
+msgid "must be a valid color code"
+msgstr "必须是有效的颜色代码"
+
+msgid "must be 40 or 64 hex characters (with optional colons between pairs)"
+msgstr "必须是 40 或 64 个十六进制字符（对之间可选用冒号分隔）"
+
+msgid "must be a hash containing only letters, numbers, spaces, : and -"
+msgstr "必须是仅包含字母、数字、空格、: 和 - 的哈希"
+
+msgid "is not a valid branch name"
+msgstr "不是有效的分支名称"
+
+msgid "is not a valid emoji name"
+msgstr "不是有效的表情名称"
+
+msgid "must be a valid line code"
+msgstr "必须是有效的行代码"
+
+msgid "must be a valid PEM certificate"
+msgstr "必须是有效的 PEM 证书"
+
+msgid "must be a valid PEM private key"
+msgstr "必须是有效的 PEM 私钥"
+
+msgid "ECDSA keys with explicit curves are not supported"
+msgstr "不支持使用显式曲线的 ECDSA 密钥"
+
+msgid "must contain one valid Zoom URL"
+msgstr "必须包含一个有效的 Zoom URL"
+
+msgid "must be an array of strategy hashes"
+msgstr "必须是策略哈希数组"
+
+msgid "strategy name is invalid"
+msgstr "策略名称无效"
+
+msgid "percentage must be a string between 0 and 100 inclusive"
+msgstr "百分比必须是 0 到 100（含）之间的字符串"
+
+msgid "groupId parameter is invalid"
+msgstr "groupId 参数无效"
+
+msgid "must associate the same project"
+msgstr "必须关联同一个项目"
+
+msgid "must be a top level Group"
+msgstr "必须是顶层群组"
+
+msgid "can not be changed because it's synchronized with provider"
+msgstr "无法更改，因为它与提供商同步"
+
+msgid "is longer than the allowed length of 4000 characters."
+msgstr "长度超过允许的 4000 个字符。"
+
+msgid "is not a valid SHA"
+msgstr "不是有效的 SHA"
+
+msgid "syntax is invalid"
+msgstr "语法无效"
+
+msgid "has to be present"
+msgstr "必须存在"
+
+msgid "is too long"
+msgstr "过长"
+
+msgid "Detumbled email has reached the reuse limit"
+msgstr "去混淆邮箱已达到重用上限"
+
+msgid "Detumbled email is associated with a banned user"
+msgstr "去混淆邮箱关联到已封禁用户"
+
+msgid "Email failed validation check"
+msgstr "邮箱未通过验证检查"
+
+msgid "must be ASCII armored"
+msgstr "必须是 ASCII armored 格式"
+
+msgid "are all invalid"
+msgstr "全部无效"
+
+msgid "is not a recognized work item type"
+msgstr "不是可识别的工作项类型"
+
+msgid "owner is not a project member"
+msgstr "所有者不是项目成员"
+
+msgid "is not enabled for this project"
+msgstr "未为此项目启用"
+
+msgid "should be true when variable is hidden"
+msgstr "隐藏变量时此项必须为 true"
+
+msgid "Only new variables can be set as masked and hidden."
+msgstr "只有新建变量才能设置为掩码和隐藏。"
+
+msgid "The visibility setting cannot be changed for masked and hidden variables."
+msgstr "掩码和隐藏变量的可见性设置无法更改。"
+
+msgid "Taking over an orphaned project runner is not allowed"
+msgstr "不允许接管孤立项目 Runner"
+
+msgid "can not be empty when runner is not allowed to pick untagged jobs"
+msgstr "当 Runner 不允许运行未打标签的作业时，此项不能为空"
+
+msgid "cannot have allowed plans assigned"
+msgstr "不能分配允许的计划"
+
+msgid "cannot have groups assigned"
+msgstr "不能分配群组"
+
+msgid "cannot have organization_id assigned"
+msgstr "不能分配组织 ID"
+
+msgid "cannot have projects assigned"
+msgstr "不能分配项目"
+
+msgid "needs to be assigned to at least one project"
+msgstr "需要至少分配给一个项目"
+
+msgid "needs to be assigned to exactly one group"
+msgstr "需要恰好分配给一个群组"
+
+msgid "must match the organization of the parent group/project"
+msgstr "必须与父群组/项目的组织一致"
+
+msgid "instance_type runners must not have an organization_id"
+msgstr "实例类型 Runner 不能带有组织 ID"
+
+msgid "is not a group runner"
+msgstr "不是群组 Runner"
+
+msgid "can't be 00000000 (branch removal)"
+msgstr "不能为 00000000（分支删除）"
+
+msgid "is immutable"
+msgstr "不可修改"
+
+msgid "exceeds the allowable number of group links"
+msgstr "超出允许的群组关联数量"
+
+msgid "exceeds the allowable number of project links in this direction"
+msgstr "超出此方向上允许的项目关联数量"
+
+msgid "must be an array of strings without `*`"
+msgstr "必须是字符串数组且不能包含 `*`"
+
+msgid "must be the same as the release author"
+msgstr "必须与发布作者相同"
+
+msgid "has expired"
+msgstr "已过期"
+
+msgid "cannot be generated"
+msgstr "无法生成"
+
+msgid "can contain only letters, digits, emoji, '_', '.', '+', dashes, or spaces. It must start with a letter, digit, emoji, or '_'."
+msgstr "只能包含字母、数字、表情符号、'_'、'.'、'+'、连字符或空格。必须以字母、数字、表情符号或 '_' 开头。"
+
+msgid "can only include non-accented letters, digits, '_', '-' and '.'. It must not start with '-', '_', or '.', nor end with '-', '_', '.', '.git', or '.atom'."
+msgstr "只能包含非重音字母、数字、'_'、'-' 和 '.'。不能以 '-'、'_' 或 '.' 开头，也不能以 '-'、'_'、'.'、'.git' 或 '.atom' 结尾。"
+
+msgid "can contain only letters, digits, emoji, '_', '.', dash, space, parenthesis. It must start with letter, digit, emoji or '_'."
+msgstr "只能包含字母、数字、表情符号、'_'、'.'、连字符、空格和括号。必须以字母、数字、表情符号或 '_' 开头。"
+
+msgid "can contain only letters, digits, '-', '_', '/', '$', '{', '}', '.', and spaces, but it cannot start or end with '/'"
+msgstr "只能包含字母、数字、'-'、'_'、'/'、'$'、'{'、'}'、'.' 和空格，但不能以 '/' 开头或结尾"
+
+msgid "can contain only letters, digits, '-', '_', '/', '$', '{', '}', '.', '*' and spaces"
+msgstr "只能包含字母、数字、'-'、'_'、'/'、'$'、'{'、'}'、'.'、'*' 和空格"
+
+msgid "can contain only letters, digits, '_' and '-'. Cannot start with '-'."
+msgstr "只能包含字母、数字、'_' 和 '-'。不能以 '-' 开头。"
+
+msgid "can contain only letters, digits, '_' and '-'. Cannot start or end with '-'."
+msgstr "只能包含字母、数字、'_' 和 '-'。不能以 '-' 开头或结尾。"
+
+msgid "can contain only letters, digits, '_', '.' and '-'. Cannot start or end with '-' or '.'."
+msgstr "只能包含字母、数字、'_'、'.' 和 '-'。不能以 '-' 或 '.' 开头或结尾。"
+
+msgid "can contain only letters, digits, '_', '-' and '.'. Cannot start with '-' or end in '.', '.git' or '.atom'."
+msgstr "只能包含字母、数字、'_'、'-' 和 '.'。不能以 '-' 开头，也不能以 '.'、'.git' 或 '.atom' 结尾。"
+
+msgid "can contain only letters, digits, '_', '-' and '.'. Cannot start with '-', end in '.git' or end in '.atom'"
+msgstr "只能包含字母、数字、'_'、'-' 和 '.'。不能以 '-' 开头，也不能以 '.git' 或 '.atom' 结尾"
+
+msgid "can contain only letters, digits and '_'."
+msgstr "只能包含字母、数字和 '_'。"
+
+msgid "can contain only letters, digits, '_', '-', '+', and '.'"
+msgstr "只能包含字母、数字、'_'、'-'、'+' 和 '.'"
+
+msgid "can contain only letters, digits, '_', '-', '.'"
+msgstr "只能包含字母、数字、'_'、'-'、'.'"
+
+msgid "can contain only letters, digits, '-', '_' and spaces"
+msgstr "只能包含字母、数字、'-'、'_' 和空格"
+
+msgid "Domain denylist cannot be empty if denylist is enabled."
+msgstr "启用域名拒绝列表时，拒绝列表不能为空。"
+
+msgid "Incremental logging cannot be turned on without configuring object storage for artifacts."
+msgstr "未配置制品对象存储时，无法开启增量日志。"
+
+msgid "URL must be to a Confluence Cloud Workspace hosted on atlassian.net"
+msgstr "URL 必须指向托管在 atlassian.net 上的 Confluence Cloud 工作区"
+
+msgid "This alias has already been taken"
+msgstr "此别名已被使用"
+
+msgid "Number of permitted priorities exceeded"
+msgstr "超出允许的优先级数量"
+
+msgid "Organization is too long (maximum is 500 characters)"
+msgstr "组织名称过长（最多 500 个字符）"
+
+msgid "Request timed out. Please try again."
+msgstr "请求超时。请重试。"
+
+msgid "The requested resource does not exist."
+msgstr "请求的资源不存在。"
+
+msgid "URI is invalid"
+msgstr "URI 无效"

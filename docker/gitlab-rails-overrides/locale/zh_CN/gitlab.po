@@ -95831,3 +95831,590 @@ msgstr "—"
 msgid "✔"
 msgstr "✔"
 
+msgid "There is an unknown failure, please try again"
+msgstr "发生未知失败，请重试"
+
+msgid "There has been an API failure, please try again"
+msgstr "发生 API 失败，请重试"
+
+msgid "There has been a timeout failure or the job got stuck. Check your timeout limits or try again"
+msgstr "发生超时失败或作业卡住。请检查超时限制后重试"
+
+msgid "There has been a runner system failure, please try again"
+msgstr "发生 Runner 系统失败，请重试"
+
+msgid "There has been a configuration error. Check your job configuration or contact your runner administrator."
+msgstr "发生配置错误。请检查作业配置或联系 Runner 管理员。"
+
+msgid "The runner could not reach an external dependency. Please try again."
+msgstr "Runner 无法访问外部依赖。请重试。"
+
+msgid "The runner process was interrupted before this job could finish. The job is safe to retry."
+msgstr "Runner 进程在作业完成前被中断。可以安全地重试此作业。"
+
+msgid "There has been a missing dependency failure"
+msgstr "发生缺少依赖的失败"
+
+msgid "No runners support the requirements to run this job."
+msgstr "没有 Runner 支持运行此作业所需的要求。"
+
+msgid "Delayed job could not be executed by some reason, please try again"
+msgstr "延迟作业因某种原因无法执行，请重试"
+
+msgid "The script exceeded the maximum execution time set for the job"
+msgstr "脚本超过了为此作业设置的最大执行时间"
+
+msgid "The job was stuck in pending state with matching runners available. Check your job configuration or try again"
+msgstr "作业在有待匹配 Runner 可用时卡在 pending 状态。请检查作业配置或重试"
+
+msgid "The job was stuck in pending state with no matching runners available. Check your runner tags or configuration"
+msgstr "作业在没有匹配 Runner 可用时卡在 pending 状态。请检查 Runner 标签或配置"
+
+msgid "The job was running but showed no activity for an extended period. Check your job script or try again"
+msgstr "作业正在运行，但长时间没有活动。请检查作业脚本或重试"
+
+msgid "The job was canceling but showed no activity for an extended period. Try again"
+msgstr "作业正在取消，但长时间没有活动。请重试"
+
+msgid "The running job exceeded the maximum execution time set for the job"
+msgstr "运行中的作业超过了为此作业设置的最大执行时间"
+
+msgid "The canceling job exceeded the maximum execution time set for the job"
+msgstr "取消中的作业超过了为此作业设置的最大执行时间"
+
+msgid "The job is archived and cannot be run"
+msgstr "作业已归档，无法运行"
+
+msgid "The job failed to complete prerequisite tasks"
+msgstr "作业未能完成前置任务"
+
+msgid "The scheduler failed to assign job to the runner, please try again or contact system administrator"
+msgstr "调度器未能将作业分配给 Runner，请重试或联系系统管理员"
+
+msgid "There has been an unknown job problem, please contact your system administrator with the job ID to review the logs"
+msgstr "发生未知作业问题，请携带作业 ID 联系系统管理员查看日志"
+
+msgid "The deployment job is older than the previously succeeded deployment job, and therefore cannot be run"
+msgstr "此部署作业早于之前成功执行的部署作业，因此无法运行"
+
+msgid "This job could not be executed because it would create infinitely looping pipelines"
+msgstr "此作业无法执行，因为它会创建无限循环的流水线"
+
+msgid "This job could not be executed because of insufficient permissions to track the upstream project."
+msgstr "此作业无法执行，因为跟踪上游项目的权限不足。"
+
+msgid "This job could not be executed because upstream bridge project could not be found."
+msgstr "此作业无法执行，因为找不到上游桥接项目。"
+
+msgid "This job could not be executed because downstream pipeline trigger definition is invalid"
+msgstr "此作业无法执行，因为下游流水线触发定义无效"
+
+msgid "This job could not be executed because the trigger:project value resolved to a blank value. Check that the variables or inputs used in trigger:project are set."
+msgstr "此作业无法执行，因为 trigger:project 的值为空。请检查 trigger:project 中使用的变量或输入是否已设置。"
+
+msgid "This job could not be executed because downstream bridge project could not be found"
+msgstr "此作业无法执行，因为找不到下游桥接项目"
+
+msgid "The environment this job is deploying to is protected. Only users with permission may successfully run this job."
+msgstr "此作业部署到的环境受保护。只有拥有权限的用户才能成功运行此作业。"
+
+msgid "This job could not be executed because of insufficient permissions to create a downstream pipeline"
+msgstr "此作业无法执行，因为创建下游流水线的权限不足"
+
+msgid "This job belongs to a child pipeline and cannot create further child pipelines"
+msgstr "此作业属于子流水线，无法再创建子流水线"
+
+msgid "The downstream pipeline could not be created"
+msgstr "无法创建下游流水线"
+
+msgid "The secrets provider can not be found. Check your CI/CD variables and try again."
+msgstr "找不到密钥提供程序。请检查 CI/CD 变量后重试。"
+
+msgid "You reached the maximum depth of child pipelines"
+msgstr "已达到子流水线的最大深度"
+
+msgid "The downstream pipeline tree is too large"
+msgstr "下游流水线树过大"
+
+msgid "The job belongs to a deleted project"
+msgstr "作业属于已删除的项目"
+
+msgid "The user who created this job is blocked"
+msgstr "创建此作业的用户已被阻止"
+
+msgid "No more compute minutes available"
+msgstr "没有可用的计算分钟数"
+
+msgid "No matching runner available"
+msgstr "没有可用的匹配 Runner"
+
+msgid "The job log size limit was reached"
+msgstr "已达到作业日志大小限制"
+
+msgid "The CI/CD is disabled for this project"
+msgstr "此项目已禁用 CI/CD"
+
+msgid "This job could not be executed because it would create an environment with an invalid parameter."
+msgstr "此作业无法执行，因为它会创建包含无效参数的环境。"
+
+msgid "This deployment job was rejected."
+msgstr "此部署作业已被拒绝。"
+
+msgid "This job could not be executed because group IP address restrictions are enabled, and the runner's IP address is not in the allowed range."
+msgstr "此作业无法执行，因为已启用群组 IP 地址限制，而 Runner 的 IP 地址不在允许范围内。"
+
+msgid "Duo Agent Platform cannot run on this runner. Duo jobs can only run on instance wide or top level group runners. Be sure to remove the gitlab--duo tag from this runner to avoid it picking these jobs."
+msgstr "Duo Agent Platform 无法在此 Runner 上运行。Duo 作业只能在实例级或顶级群组 Runner 上运行。请确保从此 Runner 移除 gitlab--duo 标签，以避免它接收这些作业。"
+
+msgid "The deployment job is older than the latest deployment, and therefore failed."
+msgstr "此部署作业早于最新部署，因此失败。"
+
+msgid "Too many downstream pipelines triggered in the last minute. Try again later."
+msgstr "上一分钟触发了过多下游流水线。请稍后重试。"
+
+msgid "The Job Router failed to run this job."
+msgstr "Job Router 未能运行此作业。"
+
+msgid "The CI job token has expired. The job may have exceeded the maximum time limit."
+msgstr "CI 作业令牌已过期。作业可能已超过最大时间限制。"
+
+msgid "CI ID token issuance is disabled because this project's path was previously used by a different project. To restore CI ID tokens, set `id_token_sub_claim_components` to start with `project_id` (for example, `[\"project_id\", \"ref_type\", \"ref\"]`) and update your cloud trust policy to match."
+msgstr "CI ID 令牌签发已禁用，因为此项目的路径之前被其他项目使用。要恢复 CI ID 令牌，请将 `id_token_sub_claim_components` 设置为以 `project_id` 开头（例如 `[\"project_id\", \"ref_type\", \"ref\"]`），并更新云信任策略以匹配。"
+
+msgid "How do I fix it?"
+msgstr "如何修复？"
+
+msgid "Job is redundant and is auto-canceled by Pipeline #%{id}"
+msgstr "作业是冗余的，已被流水线 #%{id} 自动取消"
+
+msgid "Pipeline is redundant and is auto-canceled by Pipeline #%{id}"
+msgstr "流水线是冗余的，已被流水线 #%{id} 自动取消"
+
+msgid "The reason for the pipeline failure is unknown."
+msgstr "流水线失败的原因未知。"
+
+msgid "The pipeline failed due to an error on the CI/CD configuration file."
+msgstr "流水线因 CI/CD 配置文件错误而失败。"
+
+msgid "The external pipeline validation failed."
+msgstr "外部流水线验证失败。"
+
+msgid "The pipeline failed due to the user not being verified."
+msgstr "流水线因用户未验证而失败。"
+
+msgid "The pipeline size limit was exceeded."
+msgstr "已超过流水线大小限制。"
+
+msgid "The pipeline job activity limit was exceeded."
+msgstr "已超过流水线作业活动限制。"
+
+msgid "The pipeline deployments limit was exceeded."
+msgstr "已超过流水线部署限制。"
+
+msgid "The project associated with this pipeline was deleted."
+msgstr "与此流水线关联的项目已被删除。"
+
+msgid "This pipeline did not run because the code should be reviewed by a non-AI user first. Verify that all changes in this merge request are safe before running a new pipeline."
+msgstr "此流水线未运行，因为代码应先由非 AI 用户审查。在运行新流水线之前，请确认此合并请求中的所有更改都是安全的。"
+
+msgid "Failed to create pipeline ref."
+msgstr "创建流水线 ref 失败。"
+
+msgid "The pipeline did not run. The commit was pushed with the `ci.no_pipeline` option."
+msgstr "流水线未运行。提交是使用 `ci.no_pipeline` 选项推送的。"
+
+msgid "The pipeline failed because Gitaly was temporarily unavailable. Please try again."
+msgstr "流水线因 Gitaly 暂时不可用而失败。请重试。"
+
+msgid "The resulting pipeline would have been empty. Review the %{rules_link} configuration."
+msgstr "生成的流水线将为空。请检查 %{rules_link} 配置。"
+
+msgid "The pipeline did not run. Review the %{workflow_rules_link} configuration for the pipeline."
+msgstr "流水线未运行。请检查流水线的 %{workflow_rules_link} 配置。"
+
+msgid "unknown failure"
+msgstr "未知失败"
+
+msgid "script failure"
+msgstr "脚本失败"
+
+msgid "API failure"
+msgstr "API 失败"
+
+msgid "stuck or timeout failure"
+msgstr "作业卡住或超时"
+
+msgid "runner system failure"
+msgstr "Runner 系统失败"
+
+msgid "missing dependency failure"
+msgstr "缺少依赖"
+
+msgid "unsupported runner"
+msgstr "不支持的 Runner"
+
+msgid "stale schedule"
+msgstr "过期的计划"
+
+msgid "job execution timeout"
+msgstr "作业执行超时"
+
+msgid "stuck pending with matching runners"
+msgstr "在有待匹配 Runner 时卡在 pending"
+
+msgid "stuck pending without matching runners"
+msgstr "在没有匹配 Runner 时卡在 pending"
+
+msgid "running job stopped receiving updates"
+msgstr "运行中的作业停止接收更新"
+
+msgid "canceling job stopped receiving updates"
+msgstr "取消中的作业停止接收更新"
+
+msgid "running server timeout"
+msgstr "运行中的服务器超时"
+
+msgid "canceling server timeout"
+msgstr "取消中的服务器超时"
+
+msgid "runner configuration error"
+msgstr "Runner 配置错误"
+
+msgid "runner external dependency failure"
+msgstr "Runner 外部依赖失败"
+
+msgid "runner interrupted"
+msgstr "Runner 被中断"
+
+msgid "archived failure"
+msgstr "已归档的失败"
+
+msgid "unmet prerequisites"
+msgstr "未满足前置条件"
+
+msgid "scheduler failure"
+msgstr "调度器失败"
+
+msgid "data integrity failure"
+msgstr "数据完整性失败"
+
+msgid "forward deployment failure"
+msgstr "前向部署失败"
+
+msgid "protected environment failure"
+msgstr "受保护环境失败"
+
+msgid "job would create infinitely looping pipelines"
+msgstr "作业会创建无限循环的流水线"
+
+msgid "downstream pipeline trigger definition is invalid"
+msgstr "下游流水线触发定义无效"
+
+msgid "trigger:project resolved to a blank value"
+msgstr "trigger:project 的值为空"
+
+msgid "downstream project could not be found"
+msgstr "找不到下游项目"
+
+msgid "upstream project could not be found"
+msgstr "找不到上游项目"
+
+msgid "no permissions to trigger downstream pipeline"
+msgstr "没有触发下游流水线的权限"
+
+msgid "no permissions to read upstream project"
+msgstr "没有读取上游项目的权限"
+
+msgid "creation of child pipeline not allowed from another child pipeline"
+msgstr "不允许从另一个子流水线创建子流水线"
+
+msgid "downstream pipeline can not be created"
+msgstr "无法创建下游流水线"
+
+msgid "secrets provider can not be found"
+msgstr "找不到密钥提供程序"
+
+msgid "reached maximum depth of child pipelines"
+msgstr "已达到子流水线的最大深度"
+
+msgid "downstream pipeline tree is too large"
+msgstr "下游流水线树过大"
+
+msgid "pipeline project was deleted"
+msgstr "流水线所属项目已被删除"
+
+msgid "pipeline user was blocked"
+msgstr "流水线用户已被阻止"
+
+msgid "no more compute minutes available"
+msgstr "没有可用的计算分钟数"
+
+msgid "no matching runner available"
+msgstr "没有可用的匹配 Runner"
+
+msgid "log size limit exceeded"
+msgstr "已超过日志大小限制"
+
+msgid "project builds are disabled"
+msgstr "项目已禁用构建"
+
+msgid "environment creation failure"
+msgstr "环境创建失败"
+
+msgid "deployment rejected"
+msgstr "部署被拒绝"
+
+msgid "IP address restriction failure"
+msgstr "IP 地址限制失败"
+
+msgid "Duo Workflow cannot run on this runner"
+msgstr "Duo Workflow 无法在此 Runner 上运行"
+
+msgid "failed outdated deployment job"
+msgstr "失败的过期部署作业"
+
+msgid "job token has expired"
+msgstr "作业令牌已过期"
+
+msgid "CI ID token issuance disabled for this project path"
+msgstr "此项目路径的 CI ID 令牌签发已禁用"
+
+msgid "must be at least %{bits} bits"
+msgstr "必须至少为 %{bits} 位"
+
+msgid "type is forbidden. Must be %{types}"
+msgstr "类型被禁止。必须为 %{types}"
+
+msgid "is not a valid SSH key"
+msgstr "不是有效的 SSH 密钥"
+
+msgid "is not a valid RSA key"
+msgstr "不是有效的 RSA 密钥"
+
+msgid "is not a correct duration"
+msgstr "不是有效的时长"
+
+msgid "must be a valid color code"
+msgstr "必须是有效的颜色代码"
+
+msgid "must be 40 or 64 hex characters (with optional colons between pairs)"
+msgstr "必须是 40 或 64 个十六进制字符（对之间可选用冒号分隔）"
+
+msgid "must be a hash containing only letters, numbers, spaces, : and -"
+msgstr "必须是仅包含字母、数字、空格、: 和 - 的哈希"
+
+msgid "is not a valid branch name"
+msgstr "不是有效的分支名称"
+
+msgid "is not a valid emoji name"
+msgstr "不是有效的表情名称"
+
+msgid "must be a valid line code"
+msgstr "必须是有效的行代码"
+
+msgid "must be a valid PEM certificate"
+msgstr "必须是有效的 PEM 证书"
+
+msgid "must be a valid PEM private key"
+msgstr "必须是有效的 PEM 私钥"
+
+msgid "ECDSA keys with explicit curves are not supported"
+msgstr "不支持使用显式曲线的 ECDSA 密钥"
+
+msgid "must contain one valid Zoom URL"
+msgstr "必须包含一个有效的 Zoom URL"
+
+msgid "must be an array of strategy hashes"
+msgstr "必须是策略哈希数组"
+
+msgid "strategy name is invalid"
+msgstr "策略名称无效"
+
+msgid "percentage must be a string between 0 and 100 inclusive"
+msgstr "百分比必须是 0 到 100（含）之间的字符串"
+
+msgid "groupId parameter is invalid"
+msgstr "groupId 参数无效"
+
+msgid "must associate the same project"
+msgstr "必须关联同一个项目"
+
+msgid "must be a top level Group"
+msgstr "必须是顶层群组"
+
+msgid "can not be changed because it's synchronized with provider"
+msgstr "无法更改，因为它与提供商同步"
+
+msgid "is longer than the allowed length of 4000 characters."
+msgstr "长度超过允许的 4000 个字符。"
+
+msgid "is not a valid SHA"
+msgstr "不是有效的 SHA"
+
+msgid "syntax is invalid"
+msgstr "语法无效"
+
+msgid "has to be present"
+msgstr "必须存在"
+
+msgid "is too long"
+msgstr "过长"
+
+msgid "Detumbled email has reached the reuse limit"
+msgstr "去混淆邮箱已达到重用上限"
+
+msgid "Detumbled email is associated with a banned user"
+msgstr "去混淆邮箱关联到已封禁用户"
+
+msgid "Email failed validation check"
+msgstr "邮箱未通过验证检查"
+
+msgid "must be ASCII armored"
+msgstr "必须是 ASCII armored 格式"
+
+msgid "are all invalid"
+msgstr "全部无效"
+
+msgid "is not a recognized work item type"
+msgstr "不是可识别的工作项类型"
+
+msgid "owner is not a project member"
+msgstr "所有者不是项目成员"
+
+msgid "is not enabled for this project"
+msgstr "未为此项目启用"
+
+msgid "should be true when variable is hidden"
+msgstr "隐藏变量时此项必须为 true"
+
+msgid "Only new variables can be set as masked and hidden."
+msgstr "只有新建变量才能设置为掩码和隐藏。"
+
+msgid "The visibility setting cannot be changed for masked and hidden variables."
+msgstr "掩码和隐藏变量的可见性设置无法更改。"
+
+msgid "Taking over an orphaned project runner is not allowed"
+msgstr "不允许接管孤立项目 Runner"
+
+msgid "can not be empty when runner is not allowed to pick untagged jobs"
+msgstr "当 Runner 不允许运行未打标签的作业时，此项不能为空"
+
+msgid "cannot have allowed plans assigned"
+msgstr "不能分配允许的计划"
+
+msgid "cannot have groups assigned"
+msgstr "不能分配群组"
+
+msgid "cannot have organization_id assigned"
+msgstr "不能分配组织 ID"
+
+msgid "cannot have projects assigned"
+msgstr "不能分配项目"
+
+msgid "needs to be assigned to at least one project"
+msgstr "需要至少分配给一个项目"
+
+msgid "needs to be assigned to exactly one group"
+msgstr "需要恰好分配给一个群组"
+
+msgid "must match the organization of the parent group/project"
+msgstr "必须与父群组/项目的组织一致"
+
+msgid "instance_type runners must not have an organization_id"
+msgstr "实例类型 Runner 不能带有组织 ID"
+
+msgid "is not a group runner"
+msgstr "不是群组 Runner"
+
+msgid "can't be 00000000 (branch removal)"
+msgstr "不能为 00000000（分支删除）"
+
+msgid "is immutable"
+msgstr "不可修改"
+
+msgid "exceeds the allowable number of group links"
+msgstr "超出允许的群组关联数量"
+
+msgid "exceeds the allowable number of project links in this direction"
+msgstr "超出此方向上允许的项目关联数量"
+
+msgid "must be an array of strings without `*`"
+msgstr "必须是字符串数组且不能包含 `*`"
+
+msgid "must be the same as the release author"
+msgstr "必须与发布作者相同"
+
+msgid "has expired"
+msgstr "已过期"
+
+msgid "cannot be generated"
+msgstr "无法生成"
+
+msgid "can contain only letters, digits, emoji, '_', '.', '+', dashes, or spaces. It must start with a letter, digit, emoji, or '_'."
+msgstr "只能包含字母、数字、表情符号、'_'、'.'、'+'、连字符或空格。必须以字母、数字、表情符号或 '_' 开头。"
+
+msgid "can only include non-accented letters, digits, '_', '-' and '.'. It must not start with '-', '_', or '.', nor end with '-', '_', '.', '.git', or '.atom'."
+msgstr "只能包含非重音字母、数字、'_'、'-' 和 '.'。不能以 '-'、'_' 或 '.' 开头，也不能以 '-'、'_'、'.'、'.git' 或 '.atom' 结尾。"
+
+msgid "can contain only letters, digits, emoji, '_', '.', dash, space, parenthesis. It must start with letter, digit, emoji or '_'."
+msgstr "只能包含字母、数字、表情符号、'_'、'.'、连字符、空格和括号。必须以字母、数字、表情符号或 '_' 开头。"
+
+msgid "can contain only letters, digits, '-', '_', '/', '$', '{', '}', '.', and spaces, but it cannot start or end with '/'"
+msgstr "只能包含字母、数字、'-'、'_'、'/'、'$'、'{'、'}'、'.' 和空格，但不能以 '/' 开头或结尾"
+
+msgid "can contain only letters, digits, '-', '_', '/', '$', '{', '}', '.', '*' and spaces"
+msgstr "只能包含字母、数字、'-'、'_'、'/'、'$'、'{'、'}'、'.'、'*' 和空格"
+
+msgid "can contain only letters, digits, '_' and '-'. Cannot start with '-'."
+msgstr "只能包含字母、数字、'_' 和 '-'。不能以 '-' 开头。"
+
+msgid "can contain only letters, digits, '_' and '-'. Cannot start or end with '-'."
+msgstr "只能包含字母、数字、'_' 和 '-'。不能以 '-' 开头或结尾。"
+
+msgid "can contain only letters, digits, '_', '.' and '-'. Cannot start or end with '-' or '.'."
+msgstr "只能包含字母、数字、'_'、'.' 和 '-'。不能以 '-' 或 '.' 开头或结尾。"
+
+msgid "can contain only letters, digits, '_', '-' and '.'. Cannot start with '-' or end in '.', '.git' or '.atom'."
+msgstr "只能包含字母、数字、'_'、'-' 和 '.'。不能以 '-' 开头，也不能以 '.'、'.git' 或 '.atom' 结尾。"
+
+msgid "can contain only letters, digits, '_', '-' and '.'. Cannot start with '-', end in '.git' or end in '.atom'"
+msgstr "只能包含字母、数字、'_'、'-' 和 '.'。不能以 '-' 开头，也不能以 '.git' 或 '.atom' 结尾"
+
+msgid "can contain only letters, digits and '_'."
+msgstr "只能包含字母、数字和 '_'。"
+
+msgid "can contain only letters, digits, '_', '-', '+', and '.'"
+msgstr "只能包含字母、数字、'_'、'-'、'+' 和 '.'"
+
+msgid "can contain only letters, digits, '_', '-', '.'"
+msgstr "只能包含字母、数字、'_'、'-'、'.'"
+
+msgid "can contain only letters, digits, '-', '_' and spaces"
+msgstr "只能包含字母、数字、'-'、'_' 和空格"
+
+msgid "Domain denylist cannot be empty if denylist is enabled."
+msgstr "启用域名拒绝列表时，拒绝列表不能为空。"
+
+msgid "Incremental logging cannot be turned on without configuring object storage for artifacts."
+msgstr "未配置制品对象存储时，无法开启增量日志。"
+
+msgid "URL must be to a Confluence Cloud Workspace hosted on atlassian.net"
+msgstr "URL 必须指向托管在 atlassian.net 上的 Confluence Cloud 工作区"
+
+msgid "This alias has already been taken"
+msgstr "此别名已被使用"
+
+msgid "Number of permitted priorities exceeded"
+msgstr "超出允许的优先级数量"
+
+msgid "Organization is too long (maximum is 500 characters)"
+msgstr "组织名称过长（最多 500 个字符）"
+
+msgid "Request timed out. Please try again."
+msgstr "请求超时。请重试。"
+
+msgid "The requested resource does not exist."
+msgstr "请求的资源不存在。"
+
+msgid "URI is invalid"
+msgstr "URI 无效"
