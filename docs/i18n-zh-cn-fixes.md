@@ -13,6 +13,7 @@ initializer，不替换上游源文件：
 - 翻译真源：`locale/zh_CN/ci_messages.po.fragment`（116 条）
 - 翻译真源：`locale/zh_CN/validation_messages.po.fragment`（校验文案）
 - 翻译真源：`locale/zh_CN/service_messages.po.fragment`（303 条）
+  （2026-10-19 后续增至 375 条，含 Flash/Grape/GraphQL）
 - 合并工具：`scripts/i18n/merge_po.py`
 
 ## CI/CD 作业与流水线（116 条）
@@ -93,8 +94,9 @@ end
 - 其他模型属性名在 po 未覆盖时仍可能显示英文；新增属性名可按
   `activerecord.attributes.<model>.<attribute>` 追加 msgid。
 - `ServiceResponse.error(message:)` 与 `render json: { message: }` 已用
-  initializer 运行时翻译；audit log、后台任务日志、worker 进度、多行
-  字面量片段、registry 协议码仍保持英文。
+  initializer 运行时翻译；Flash、Grape `error!` / `Grape::Exceptions::Base`、
+  GraphQL `ExecutionError` 同样运行时翻译。audit log、后台任务日志、worker
+  进度、多行字面量片段、registry 协议码、CI YAML Entry 校验仍保持英文。
 - 前端 `public/assets/locale/zh_CN/app-*.js.gz` 是独立翻译包，本次未修改。
 
 ## ServiceResponse 与 JSON 错误（303 条，2026-10-19）
@@ -105,3 +107,14 @@ end
 | 控制器 JSON `message` | `render json: { message: ... }` | 若干 | `Invalid parameters` | 参数无效 | 已修复 |
 | 校验补充与属性名 | `errors.add` / `activerecord.attributes.member.access_level` | 若干 | `timezone is not valid` / `Access level` | 无效 / 访问级别 | 已修复 |
 | 其它用户可见 hash 风格错误 | `Result.new(error_message:)`、legacy `error(message:)` | 若干 | `Work item not found` | 未找到工作项 | 已入库 |
+
+## Flash / Grape / GraphQL（2026-10-19）
+
+| 页面/接口 | 文案位置 | 条数 | 代表英文原文（msgid） | 修复后 | 状态 |
+| --- | --- | ---: | --- | --- | --- |
+| 页面 flash | `ActionDispatch::Flash::FlashHash#[]=` | 若干 | `Wrong credentials` | 凭据错误 | 已修复 |
+| REST `error!` | `Grape::Endpoint#error!` | 若干 | `API V3 is no longer supported. Use API V4 instead.` | 不再支持 API V3。请改用 API V4。 | 已修复 |
+| Grape 参数校验 | `Grape::Exceptions::Base#message` | 若干 | `contains an invalid email address` | 包含无效的电子邮件地址 | 已修复 |
+| GraphQL 执行错误 | `GraphQL::ExecutionError#initialize` | 1 | `orderBy parameter must contain one key-value pair.` | orderBy 参数必须包含一个键值对。 | 已修复 |
+
+金丝雀 `i18n-todo8-20261019`=`cec8ff30293d`；en 回退英文。

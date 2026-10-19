@@ -25,8 +25,8 @@
 ### 0. 多语言（zh-CN）补全 — 下一版本
 
 **状态**：CI/校验文案已随 19.3.1（2026-10-17）发布；2026-10-19 继续补齐
-`ServiceResponse` / JSON `message` 运行时翻译与用户可见校验文案。扫描工具
-已入库，可直接复跑。生产镜像未变更。
+`ServiceResponse` / JSON / Flash / Grape / GraphQL 运行时翻译与用户可见校验文案。
+扫描工具已入库，可直接复跑。生产镜像未变更。
 
 **本轮已完成（2026-10-17）**：
 
@@ -62,13 +62,29 @@
   `{message: "Invalid parameters"}` → `参数无效`。`/-/readiness`、`/-/health`
   均为 200。
 
+**本轮已完成（2026-10-19，Flash/Grape/GraphQL）**：
+
+- initializer 新增 `FlashMessages`（`flash[:alert|:notice|:error|:warning]`）、
+  `GrapeErrorMessages`（`Grape::Endpoint#error!` / `InsideRoute#error!`）、
+  `GrapeExceptionMessages`（`Grape::Exceptions::Base#message`，覆盖参数校验异常）、
+  `GraphQLErrorMessages`（`GraphQL::ExecutionError#initialize`）。
+- `service_messages.po.fragment` 增至 375 条，覆盖剩余 `ServiceResponse`、
+  REST `error!` 完整句、Grape 校验器短句、GraphQL `orderBy` 等。
+- 验证（金丝雀 `i18n-todo8-20261019`=`cec8ff30293d`）：`flash[:alert]="Wrong credentials"`
+  → `凭据错误`；`ServiceResponse.error(message: "Unsupported token type")`
+  → `不支持的令牌类型`；`GraphQL::ExecutionError.new("orderBy parameter must contain one key-value pair.")`
+  → `orderBy 参数必须包含一个键值对。`；`Grape::Exceptions::Validation` 的
+  `contains an invalid email address` → `包含无效的电子邮件地址`。en 回退英文。
+  `/-/readiness`、`/-/health` 均为 200。
+
 | 文件路径 | key / 位置 | 待办说明 |
 | --- | --- | --- |
 | 同上 | `GitlabRs::CiI18n::{CommitStatusMessages,PipelineMessages,FailedStatusMessages,CompletionReasonMessages,PlayManualMessages}` | 用 `scripts/i18n/scan_hardcoded.py` 对新版本 CI 代码复扫，新增/变更的状态文案按 msgid 补翻 |
 | `locale/zh_CN/ci_messages.po.fragment` | `CI ID token issuance disabled for this project path` 等 116 条 | 仅在 en/ja 回归时复核；新增状态类文案继续追加到此 fragment |
 | `app/services/**`、`app/controllers/**`（上游） | `ServiceResponse.error(message:)`、`render json: { message: ... }` | 已用 initializer 运行时翻译 + `service_messages.po.fragment`；新增 msgid 追加到该 fragment 即可，无需再逐处 `_()` 包裹 |
-| `scripts/i18n/scan_missing.py` | 全量 `app/` 扫描 | 2026-10-19 复扫 356 行。可跳过：log 166、worker/审计日志、多行字面量片段、CSS/类名、registry 协议码 `NAME_UNKNOWN`/`UNAVAILABLE`。剩余 other 中的 hash 风格 `error(message:)` 未走 `ServiceResponse`，如需补再追加 msgid |
+| `scripts/i18n/scan_missing.py` | 全量 `app/` + `lib/` 扫描 | 2026-10-19 todo8 复扫 836 行：other 425、log 304、validation 71、exception 25、api_response 7、service_response 0（4 条已入库）。可跳过：log/worker/审计、已 `_()`/`s_()` 的多行片段、CSS/类名、registry 协议码 `NAME_UNKNOWN`。剩余主要是 `Gitlab::Config::Entry` CI YAML 校验（未走 ActiveModel/Grape 钩子）和带插值的句子 |
 | `public/assets/locale/zh_CN/app-*.js.gz` | 前端翻译包 | 服务端修复不影响该独立包；如需补前端文案，按上游前端 i18n 流程更新 |
+| `lib/gitlab/config/entry/**`、`lib/gitlab/ci/config/entry/**` | CI YAML 校验短句 | 走 Entry 校验器，当前 initializer 未 hook；流水线编辑器里仍可能英文。若要补，需另挂运行时翻译并追加完整 msgid |
 
 ### 1. SafeLine WAF 拦截
 
