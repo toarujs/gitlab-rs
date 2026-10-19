@@ -237,3 +237,208 @@ msgstr "请求的资源不存在。"
 
 msgid "URI is invalid"
 msgstr "URI 无效"
+
+msgid "activerecord.errors.messages.invalid"
+msgstr "是无效的"
+
+msgid "activerecord.attributes.key.fingerprint_sha256"
+msgstr "指纹（SHA256）"
+
+msgid "activerecord.attributes.application_setting.domain_denylist"
+msgstr "域名拒绝列表"
+
+# Model and service validation messages added after the 2026-10-17 app-wide scan.
+msgid "An error occurred while processing your request"
+msgstr "处理您的请求时发生错误"
+
+msgid "Cannot delete an experiment associated to a model"
+msgstr "无法删除与模型关联的实验"
+
+msgid "Not authorized"
+msgstr "未授权"
+
+msgid "User list is associated with a strategy"
+msgstr "用户列表已关联策略"
+
+msgid "You must select source and target branch"
+msgstr "必须选择源分支和目标分支"
+
+msgid "You must select different branches"
+msgstr "必须选择不同的分支"
+
+msgid "You must transfer ownership of organizations before you can remove user"
+msgstr "删除用户前必须先转移组织所有权"
+
+msgid "You must transfer ownership or delete groups before you can remove user"
+msgstr "删除用户前必须先转移所有权或删除群组"
+
+msgid "already in use for another service desk address."
+msgstr "已被另一个服务台地址使用。"
+
+msgid "can't be different from the previous_path attribute"
+msgstr "不能与 previous_path 属性不同"
+
+msgid "cannot add duplicated environment scope"
+msgstr "不能重复"
+
+msgid "cannot be blank for extensions setting type"
+msgstr "扩展设置类型下不能为空"
+
+msgid "cannot be enabled until verification process has finished."
+msgstr "验证流程完成前无法启用。"
+
+msgid "cannot be related to itself"
+msgstr "不能与自身关联"
+
+msgid "cannot be true for related link types"
+msgstr "关联链接类型不能为 true"
+
+msgid "cannot contain a path traversal component"
+msgstr "不能包含路径穿越组件"
+
+msgid "cannot contain escaped HTML entities"
+msgstr "不能包含转义的 HTML 实体"
+
+msgid "cannot contain escaped components"
+msgstr "不能包含转义组件"
+
+msgid "cannot have higher visibility level than repository access level"
+msgstr "可见性级别不能高于仓库访问级别"
+
+msgid "cannot have public visibility level"
+msgstr "不能使用公开可见性级别"
+
+msgid "contains a numeric value that is too large"
+msgstr "包含过大的数值"
+
+msgid "does not match noteable project"
+msgstr "与可评论对象所属项目不匹配"
+
+msgid "does not match the diff refs"
+msgstr "与差异引用不匹配"
+
+msgid "doesn't match the certificate"
+msgstr "与证书不匹配"
+
+msgid "doesn't support new-style diff notes"
+msgstr "不支持新版差异评论"
+
+msgid "each page in a wiki must have a distinct canonical slug"
+msgstr "Wiki 中每个页面的规范 slug 必须唯一"
+
+msgid "exceeds allowed JSON complexity limits"
+msgstr "超出允许的 JSON 复杂度限制"
+
+msgid "has characters that are not allowed"
+msgstr "包含不允许的字符"
+
+msgid "has to be a subgroup of the group"
+msgstr "必须是该群组的子群组"
+
+msgid "hosts array cannot be nested"
+msgstr "数组不能嵌套"
+
+msgid "is already taken by another project"
+msgstr "已被另一个项目占用"
+
+msgid "is empty or does not exist"
+msgstr "为空或不存在"
+
+msgid "is forbidden"
+msgstr "被禁止"
+
+msgid "is in an invalid format"
+msgstr "格式无效"
+
+msgid "is incomplete"
+msgstr "不完整"
+
+msgid "is not a valid commit"
+msgstr "不是有效的提交"
+
+msgid "is not allowed"
+msgstr "不允许"
+
+msgid "is not allowed to import projects"
+msgstr "无权导入项目"
+
+msgid "is not included in the list"
+msgstr "不在列表中"
+
+msgid "is not valid"
+msgstr "无效"
+
+msgid "merge_request cannot be changed"
+msgstr "不能更改"
+
+msgid "misses intermediates"
+msgstr "缺少中间证书"
+
+msgid "model project must be the same"
+msgstr "所属项目必须相同"
+
+msgid "must be blank for non extensions setting type"
+msgstr "非扩展设置类型下必须为空"
+
+msgid "must be different from the previous_path attribute"
+msgstr "必须与 previous_path 属性不同"
+
+msgid "must be greater than or equal to start date"
+msgstr "必须大于或等于开始日期"
+
+msgid "must be present on both design and version"
+msgstr "必须在设计和版本中都存在"
+
+msgid "must be the same on design and version"
+msgstr "在设计和版本中必须相同"
+
+msgid "must be uploaded"
+msgstr "必须上传"
+
+msgid "must contain only scheme and host"
+msgstr "只能包含 scheme 和 host"
+
+msgid "must contain scheme and host, and not path"
+msgstr "必须包含 scheme 和 host，且不能包含路径"
+
+msgid "must not be a known import source domain"
+msgstr "不能是已知的导入源域名"
+
+msgid "must only include ASCII characters"
+msgstr "只能包含 ASCII 字符"
+
+msgid "not allowed when performance bar is disabled"
+msgstr "性能栏禁用时不允许设置"
+
+msgid "only allowed for project cluster"
+msgstr "仅允许用于项目集群"
+
+msgid "organization must match the token scope's organization"
+msgstr "必须与令牌范围的组织一致"
+
+msgid "package must be ml_model"
+msgstr "必须是 ml_model"
+
+msgid "package name must be the same"
+msgstr "名称必须相同"
+
+msgid "package project must be the same"
+msgstr "项目必须相同"
+
+msgid "package version must be the same"
+msgstr "版本必须相同"
+
+msgid "selective_code_owner_removals can only be enabled when reset_approvals_on_push is disabled"
+msgstr "reset_approvals_on_push 禁用时才能启用 selective_code_owner_removals"
+
+msgid "state is already locked"
+msgstr "状态已被锁定"
+
+msgid "timezone is not valid"
+msgstr "无效"
+
+msgid "cannot start with '%{prefix}.' because the profile URL would be intercepted by an existing route. Please choose a different name."
+msgstr "不能以 '%{prefix}.' 开头，因为该个人资料 URL 会被现有路由拦截。请选择其他名称。"
+
+msgid "activerecord.attributes.member.access_level"
+msgstr "访问级别"

@@ -1,0 +1,908 @@
+msgid "3:Invalid merge source"
+msgstr "3:无效的合并源"
+
+msgid "403 Forbidden"
+msgstr "403 禁止访问"
+
+msgid "A granular token can only create tokens with equal or lesser permissions."
+msgstr "细粒度令牌只能创建权限相同或更低的令牌。"
+
+msgid "A module with the same name & version already exists in the project."
+msgstr "项目中已存在同名同版本的模块。"
+
+msgid "A module with the same name already exists in the namespace."
+msgstr "命名空间中已存在同名模块。"
+
+msgid "A package with the same name and version already exists"
+msgstr "同名同版本的软件包已存在"
+
+msgid "Action is required"
+msgstr "需要指定操作"
+
+msgid "Action temporarily disabled. The project this job belongs to is undergoing stats refresh."
+msgstr "操作暂时禁用。此作业所属项目正在进行统计信息刷新。"
+
+msgid "Admin is required"
+msgstr "需要管理员权限"
+
+msgid "All branches rules cannot be deleted."
+msgstr "不能删除全部分支规则。"
+
+msgid "All branches rules cannot be updated."
+msgstr "不能更新全部分支规则。"
+
+msgid "All protected branch rules cannot configure squash options"
+msgstr "所有受保护分支规则都无法配置压缩选项"
+
+msgid "All protected branches not allowed"
+msgstr "不允许使用所有受保护分支"
+
+msgid "Already has a downstream pipeline"
+msgstr "已有下游流水线"
+
+msgid "Another update to this commit status is in progress"
+msgstr "此提交状态的另一项更新正在进行中"
+
+msgid "At least one granular scope must be provided"
+msgstr "必须至少提供一个细粒度范围"
+
+msgid "Attempted to destroy the environment but failed"
+msgstr "尝试销毁环境但失败"
+
+msgid "Attempted to stop the environment but failed to change the status"
+msgstr "尝试停止环境但未能更改状态"
+
+msgid "Attempted to track a non-failed CI build"
+msgstr "尝试跟踪非失败的 CI 构建"
+
+msgid "Attestation is only enabled for public projects"
+msgstr "证明仅对公开项目启用"
+
+msgid "Bad Request"
+msgstr "错误请求"
+
+msgid "Bad request"
+msgstr "错误请求"
+
+msgid "Before date must be provided"
+msgstr "必须提供截止日期"
+
+msgid "Branch was deleted"
+msgstr "分支已删除"
+
+msgid "CAPTCHA successfully verified"
+msgstr "CAPTCHA 验证成功"
+
+msgid "Can not run a failed bridge"
+msgstr "无法运行失败的桥接"
+
+msgid "Cannot archive group since it is scheduled for deletion."
+msgstr "无法归档群组，因为它已被计划删除。"
+
+msgid "Cannot archive group since one of the ancestor groups is already archived!"
+msgstr "无法归档群组，因为其上级群组之一已归档！"
+
+msgid "Cannot archive project since it is scheduled for deletion."
+msgstr "无法归档项目，因为它已被计划删除。"
+
+msgid "Cannot archive project since one of the ancestors is already archived."
+msgstr "无法归档项目，因为其上级之一已归档。"
+
+msgid "Cannot destroy running deployment"
+msgstr "无法销毁正在运行的部署"
+
+msgid "Cannot reorder a saved view relative to itself"
+msgstr "无法相对于自身重新排序已保存的视图"
+
+msgid "Cannot unarchive group since one of the ancestor groups is archived!"
+msgstr "无法取消归档群组，因为其上级群组之一已归档！"
+
+msgid "Cannot unarchive project since one of the ancestors is archived."
+msgstr "无法取消归档项目，因为其上级之一已归档。"
+
+msgid "Catalog Resource destroyed"
+msgstr "目录资源已销毁"
+
+msgid "Check the permissions in Jira and try again."
+msgstr "请检查 Jira 中的权限后重试。"
+
+msgid "Checks were not successful"
+msgstr "检查未成功"
+
+msgid "ClickHouse database is not configured"
+msgstr "未配置 ClickHouse 数据库"
+
+msgid "Container must be specified"
+msgstr "必须指定容器"
+
+msgid "Could not determine diff refs for this merge request"
+msgstr "无法确定此合并请求的差异引用"
+
+msgid "Could not find the signature in the symbol file"
+msgstr "无法在符号文件中找到签名"
+
+msgid "Could not update preference"
+msgstr "无法更新偏好设置"
+
+msgid "Couldn't save application"
+msgstr "无法保存应用"
+
+msgid "Credit card verification limit exceeded"
+msgstr "信用卡验证次数超限"
+
+msgid "Custom attribute not found"
+msgstr "未找到自定义属性"
+
+msgid "Dependency proxy image TTL Policy not found"
+msgstr "未找到依赖代理镜像 TTL 策略"
+
+msgid "Dependency proxy setting not found"
+msgstr "未找到依赖代理设置"
+
+msgid "Deployment currently deployed to environment"
+msgstr "部署当前已部署到环境"
+
+msgid "Deployment destroyed"
+msgstr "部署已销毁"
+
+msgid "Disabled: ClickHouse database is not configured."
+msgstr "已禁用：未配置 ClickHouse 数据库。"
+
+msgid "Does not trigger a downstream pipeline"
+msgstr "不会触发下游流水线"
+
+msgid "Downstream pipeline enqueued"
+msgstr "下游流水线已加入队列"
+
+msgid "Duplicate package is not allowed"
+msgstr "不允许重复的软件包"
+
+msgid "Error in git ref creation"
+msgstr "创建 Git 引用时出错"
+
+msgid "Error occurred when publishing attestations"
+msgstr "发布证明时出错"
+
+msgid "Error updating stale job"
+msgstr "更新过期作业时出错"
+
+msgid "Escalation status updates are not available for this issue, user, or project."
+msgstr "此议题、用户或项目不支持升级状态更新。"
+
+msgid "Events were deleted."
+msgstr "事件已删除。"
+
+msgid "Failed to archive project."
+msgstr "归档项目失败。"
+
+msgid "Failed to create package file"
+msgstr "创建软件包文件失败"
+
+msgid "Failed to create temporary package"
+msgstr "创建临时软件包失败"
+
+msgid "Failed to create workload ref"
+msgstr "创建工作负载引用失败"
+
+msgid "Failed to delete branch rule."
+msgstr "删除分支规则失败。"
+
+msgid "Failed to destroy runner project"
+msgstr "销毁运行器项目失败"
+
+msgid "Failed to mark the packages as pending destruction"
+msgstr "将软件包标记为待销毁失败"
+
+msgid "Failed to obtain a lock. Please try again."
+msgstr "获取锁失败。请重试。"
+
+msgid "Failed to register push subscription"
+msgstr "注册推送订阅失败"
+
+msgid "Failed to remove branch"
+msgstr "删除分支失败"
+
+msgid "Failed to unarchive project."
+msgstr "取消归档项目失败。"
+
+msgid "Failed to update job token scope"
+msgstr "更新作业令牌范围失败"
+
+msgid "Failed to update pipeline"
+msgstr "更新流水线失败"
+
+msgid "Feature flag `organization_switching` is not enabled for this user."
+msgstr "此用户未启用功能标志 `organization_switching`。"
+
+msgid "File name is too long"
+msgstr "文件名过长"
+
+msgid "Group has errors"
+msgstr "群组存在错误"
+
+msgid "Group is already archived!"
+msgstr "群组已归档！"
+
+msgid "Group is already unarchived!"
+msgstr "群组已取消归档！"
+
+msgid "Group statistics successfully updated."
+msgstr "群组统计信息已成功更新。"
+
+msgid "HTTP exception when calling Slack API"
+msgstr "调用 Slack API 时发生 HTTP 异常"
+
+msgid "Hook disabled"
+msgstr "Webhook 已禁用"
+
+msgid "IAM JWT authentication attempt when disabled"
+msgstr "在禁用状态下尝试 IAM JWT 身份验证"
+
+msgid "IAM JWT authentication is disabled"
+msgstr "IAM JWT 身份验证已禁用"
+
+msgid "IAM JWT validation failed"
+msgstr "IAM JWT 验证失败"
+
+msgid "IAM consent accept response contains invalid redirect URL"
+msgstr "IAM 同意接受响应包含无效的重定向 URL"
+
+msgid "IAM consent accept response missing redirect_to"
+msgstr "IAM 同意接受响应缺少 redirect_to"
+
+msgid "IAM consent reject response contains invalid redirect URL"
+msgstr "IAM 同意拒绝响应包含无效的重定向 URL"
+
+msgid "IAM consent reject response missing redirect_to"
+msgstr "IAM 同意拒绝响应缺少 redirect_to"
+
+msgid "IAM login accept response contains invalid redirect URL"
+msgstr "IAM 登录接受响应包含无效的重定向 URL"
+
+msgid "IAM login accept response missing redirect_to"
+msgstr "IAM 登录接受响应缺少 redirect_to"
+
+msgid "Ignoring Slack view_submission with unknown callback_id"
+msgstr "忽略 callback_id 未知的 Slack view_submission"
+
+msgid "Import failed"
+msgstr "导入失败"
+
+msgid "Incoming mail token was successfully reset"
+msgstr "收件邮件令牌已成功重置"
+
+msgid "Insufficient permissions to cancel the pipeline"
+msgstr "权限不足，无法取消流水线"
+
+msgid "Insufficient permissions to change the package status"
+msgstr "权限不足，无法更改软件包状态"
+
+msgid "Invalid argument"
+msgstr "无效参数"
+
+msgid "Invalid duration percentiles specified"
+msgstr "指定的持续时间百分位数无效"
+
+msgid "Invalid group"
+msgstr "无效群组"
+
+msgid "Invalid package type"
+msgstr "无效的软件包类型"
+
+msgid "Invalid snippet repository"
+msgstr "无效的代码片段仓库"
+
+msgid "Invalid time window"
+msgstr "无效的时间窗口"
+
+msgid "Job is not retryable"
+msgstr "作业不可重试"
+
+msgid "Keep-around references were not written"
+msgstr "Keep-around 引用未写入"
+
+msgid "List destroy failed."
+msgstr "列表销毁失败。"
+
+msgid "Merge ref cannot be updated"
+msgstr "合并引用无法更新"
+
+msgid "Missing Slack event data"
+msgstr "缺少 Slack 事件数据"
+
+msgid "Missing deprecated versions"
+msgstr "缺少已弃用版本"
+
+msgid "Missing project parameter"
+msgstr "缺少项目参数"
+
+msgid "Missing user parameter"
+msgstr "缺少用户参数"
+
+msgid "Missing versions"
+msgstr "缺少版本"
+
+msgid "Model not found"
+msgstr "未找到模型"
+
+msgid "Model update failed"
+msgstr "模型更新失败"
+
+msgid "New metadata package file created"
+msgstr "已创建新的元数据软件包文件"
+
+msgid "No components to process"
+msgstr "没有要处理的组件"
+
+msgid "No pipeline provided"
+msgstr "未提供流水线"
+
+msgid "No snippet found."
+msgstr "未找到代码片段。"
+
+msgid "No snippets found."
+msgstr "未找到代码片段。"
+
+msgid "No such branch"
+msgstr "没有此分支"
+
+msgid "Not all artifacts belong to requested project"
+msgstr "并非所有产物都属于请求的项目"
+
+msgid "Not allowed"
+msgstr "不允许"
+
+msgid "Not permitted to reset"
+msgstr "不允许重置"
+
+msgid "Not permitted to reset token"
+msgstr "不允许重置令牌"
+
+msgid "Not permitted to revoke"
+msgstr "不允许撤销"
+
+msgid "Noteables must be different"
+msgstr "可评论对象必须不同"
+
+msgid "Open and closed lists on a board cannot be destroyed."
+msgstr "看板上的开启和关闭列表无法销毁。"
+
+msgid "Organization has already been activated"
+msgstr "组织已激活"
+
+msgid "Organization is required"
+msgstr "必须指定组织"
+
+msgid "Package files are now pending destruction"
+msgstr "软件包文件现已待销毁"
+
+msgid "Package is required"
+msgstr "必须指定软件包"
+
+msgid "Package protected."
+msgstr "软件包受保护。"
+
+msgid "Packages were successfully marked as pending destruction"
+msgstr "软件包已成功标记为待销毁"
+
+msgid "Passphrase contains invalid characters"
+msgstr "密码短语包含无效字符"
+
+msgid "Pipeline is not cancelable"
+msgstr "流水线不可取消"
+
+msgid "Pipeline metadata was updated"
+msgstr "流水线元数据已更新"
+
+msgid "Pipeline not found"
+msgstr "未找到流水线"
+
+msgid "Pipelines stopped"
+msgstr "流水线已停止"
+
+msgid "Pre-conditions not met"
+msgstr "未满足前置条件"
+
+msgid "Preference was updated"
+msgstr "偏好设置已更新"
+
+msgid "Project is already archived."
+msgstr "项目已归档。"
+
+msgid "Push subscription not found"
+msgstr "未找到推送订阅"
+
+msgid "Reached downstream pipeline trigger rate limit"
+msgstr "已达到下游流水线触发速率限制"
+
+msgid "Record not found"
+msgstr "未找到记录"
+
+msgid "Recursive webhook blocked"
+msgstr "递归 Webhook 已被阻止"
+
+msgid "Ref already exists"
+msgstr "引用已存在"
+
+msgid "Runner is locked"
+msgstr "运行器已锁定"
+
+msgid "SSH Certificate could not be deleted"
+msgstr "无法删除 SSH 证书"
+
+msgid "SSH Certificate not found"
+msgstr "未找到 SSH 证书"
+
+msgid "Silent mode enabled"
+msgstr "静默模式已启用"
+
+msgid "Skipped spam check because it was not required"
+msgstr "已跳过垃圾信息检查，因为不需要检查"
+
+msgid "Skipped spam check because user was allowlisted"
+msgstr "已跳过垃圾信息检查，因为用户在白名单中"
+
+msgid "Skipped spam check because user was not present"
+msgstr "已跳过垃圾信息检查，因为用户不存在"
+
+msgid "Slack API returned an error"
+msgstr "Slack API 返回错误"
+
+msgid "SlackInstallation record has no bot token"
+msgstr "SlackInstallation 记录没有机器人令牌"
+
+msgid "Snippet statistics successfully updated."
+msgstr "代码片段统计信息已成功更新。"
+
+msgid "Snippet was deleted."
+msgstr "代码片段已删除。"
+
+msgid "Snippets were deleted."
+msgstr "代码片段已删除。"
+
+msgid "Source ref not found"
+msgstr "未找到源引用"
+
+msgid "Squash options are not supported for this branch rule"
+msgstr "此分支规则不支持压缩选项"
+
+msgid "Squash options for all branches can only be changed using the update mutation"
+msgstr "所有分支的压缩选项只能通过更新变更更改"
+
+msgid "Successfully imported"
+msgstr "导入成功"
+
+msgid "Successfully requested stop for all stale environments"
+msgstr "已成功请求停止所有过期环境"
+
+msgid "Target group is not in the job token scope"
+msgstr "目标群组不在作业令牌范围内"
+
+msgid "The current user is not authorized to destroy the session"
+msgstr "当前用户无权销毁会话"
+
+msgid "The diff may have been updated since you last viewed it."
+msgstr "差异可能自您上次查看以来已更新。"
+
+msgid "The provided head_sha does not match the current merge request diff. "
+msgstr "提供的 head_sha 与当前合并请求差异不匹配。"
+
+msgid "The pull request is not opened"
+msgstr "拉取请求未打开"
+
+msgid "The source sha is not the head of the source branch"
+msgstr "源 SHA 不是源分支的头部"
+
+msgid "The target does not exist"
+msgstr "目标不存在"
+
+msgid "The trigger:project value resolved to a blank value"
+msgstr "trigger:project 值解析为空"
+
+msgid "There was an error when communicating to Jira"
+msgstr "与 Jira 通信时出错"
+
+msgid "There was an error when creating a board."
+msgstr "创建看板时出错。"
+
+msgid "This group is already in the job token allowlist."
+msgstr "此群组已在作业令牌允许列表中。"
+
+msgid "This project is already in the job token allowlist."
+msgstr "此项目已在作业令牌允许列表中。"
+
+msgid "Timeout while marking package files as pending destruction"
+msgstr "将软件包文件标记为待销毁时超时"
+
+msgid "Token was not revoked"
+msgstr "令牌未撤销"
+
+msgid "Token was revoked"
+msgstr "令牌已撤销"
+
+msgid "Unable to access repository with the URL and credentials provided"
+msgstr "无法使用提供的 URL 和凭据访问仓库"
+
+msgid "Unable to find a job token scope for the given project & target"
+msgstr "无法找到给定项目和目标的作业令牌范围"
+
+msgid "Unable to find build"
+msgstr "无法找到构建"
+
+msgid "Unable to find subscribed saved view(s)"
+msgstr "无法找到已订阅的已保存视图"
+
+msgid "Unauthorized to delete the environment"
+msgstr "无权删除环境"
+
+msgid "Unauthorized to revoke project deploy token"
+msgstr "无权撤销项目部署令牌"
+
+msgid "Unauthorized to stop the environment"
+msgstr "无权停止环境"
+
+msgid "Unknown branch rule type."
+msgstr "未知的分支规则类型。"
+
+msgid "Unprocessable Entity"
+msgstr "无法处理的实体"
+
+msgid "Unprocessable entity"
+msgstr "无法处理的实体"
+
+msgid "Unsupported operation"
+msgstr "不支持的操作"
+
+msgid "Updating BranchRule not supported"
+msgstr "不支持更新 BranchRule"
+
+msgid "Usage counts updated for components and resources"
+msgstr "组件和资源的使用计数已更新"
+
+msgid "Usages recorded"
+msgstr "使用情况已记录"
+
+msgid "Use a tag, branch, or commit SHA instead."
+msgstr "请改用标签、分支或提交 SHA。"
+
+msgid "User can't read parent"
+msgstr "用户无法读取父项"
+
+msgid "User not allowed to manage project's runners"
+msgstr "不允许用户管理项目的运行器"
+
+msgid "User not allowed to unassign runner"
+msgstr "不允许用户取消分配运行器"
+
+msgid "User not authorized to delete work item"
+msgstr "用户无权删除工作项"
+
+msgid "User successfully deleted"
+msgstr "用户已成功删除"
+
+msgid "Valid snippet repository."
+msgstr "有效的代码片段仓库。"
+
+msgid "Validation failed: Invalid key"
+msgstr "验证失败：无效的密钥"
+
+msgid "Version is empty."
+msgstr "版本为空。"
+
+msgid "Work item description can't be blank"
+msgstr "工作项描述不能为空"
+
+msgid "You cannot unassign a runner from the owner project. Delete the runner instead"
+msgstr "无法从所有者项目取消分配运行器。请改为删除运行器"
+
+msgid "You don't have permissions to archive this group!"
+msgstr "您没有归档此群组的权限！"
+
+msgid "You don't have permissions to archive this project."
+msgstr "您没有归档此项目的权限。"
+
+msgid "You don't have permissions to unarchive this group!"
+msgstr "您没有取消归档此群组的权限！"
+
+msgid "You don't have permissions to unarchive this project."
+msgstr "您没有取消归档此项目的权限。"
+
+msgid "You don't have the permission to create a board for this resource."
+msgstr "您没有为此资源创建看板的权限。"
+
+msgid "You don't have the permission to perform this action"
+msgstr "您没有执行此操作的权限"
+
+msgid "You dont have push access to repo"
+msgstr "您没有仓库推送权限"
+
+msgid "You have insufficient permission to update this job token scope"
+msgstr "您的权限不足，无法更新此作业令牌范围"
+
+msgid "`system_id` needs to be specified."
+msgstr "需要指定 `system_id`。"
+
+msgid "article already marked as read"
+msgstr "文章已标记为已读"
+
+msgid "forbidden"
+msgstr "禁止访问"
+
+msgid "group limit exceeded"
+msgstr "超出群组限制"
+
+msgid "importable must be a Group or Project"
+msgstr "可导入对象必须是群组或项目"
+
+msgid "invalid article id"
+msgstr "无效的文章 ID"
+
+msgid "invalid file url"
+msgstr "无效的文件 URL"
+
+msgid "invalid policy"
+msgstr "无效策略"
+
+msgid "invalid time series period"
+msgstr "无效的时间序列周期"
+
+msgid "invalid token supplied"
+msgstr "提供的令牌无效"
+
+msgid "line_number_end must be greater or equal to line_number_start"
+msgstr "line_number_end 必须大于或等于 line_number_start"
+
+msgid "line_number_start must be greater than 0"
+msgstr "line_number_start 必须大于 0"
+
+msgid "metadata content is not set"
+msgstr "未设置元数据内容"
+
+msgid "metadata_content is invalid"
+msgstr "metadata_content 无效"
+
+msgid "metadata_content not set"
+msgstr "未设置 metadata_content"
+
+msgid "no repository"
+msgstr "无仓库"
+
+msgid "non-catalog resources. Use a tag, branch, or commit SHA instead."
+msgstr "非目录资源。请改用标签、分支或提交 SHA。"
+
+msgid "not authorized"
+msgstr "未授权"
+
+msgid "not instance specific"
+msgstr "非实例特定"
+
+msgid "nuspec file not found"
+msgstr "未找到 nuspec 文件"
+
+msgid "package is not set"
+msgstr "未设置软件包"
+
+msgid "package not set"
+msgstr "未设置软件包"
+
+msgid "project limit exceeded"
+msgstr "超出项目限制"
+
+msgid "runner registration disallowed"
+msgstr "不允许注册运行器"
+
+msgid "unauthorized"
+msgstr "未授权"
+
+msgid "upgrade version check failed"
+msgstr "升级版本检查失败"
+
+msgid "user not allowed to update runners registration token"
+msgstr "不允许用户更新运行器注册令牌"
+
+msgid "version not present"
+msgstr "版本不存在"
+
+msgid "version update disabled"
+msgstr "版本更新已禁用"
+
+msgid "Only one issue tracker service can be active at a time"
+msgstr "同一时间只能有一个议题跟踪器服务处于活动状态"
+
+msgid "Only one third-party wiki integration can be active at a time"
+msgstr "同一时间只能有一个第三方 Wiki 集成处于活动状态"
+
+msgid "Please rename the group or user before creating an organization."
+msgstr "创建组织前请先重命名该群组或用户。"
+
+msgid "Please, change the content or solve the reCAPTCHA to proceed."
+msgstr "请修改内容或完成 reCAPTCHA 验证后继续。"
+
+msgid "Please, change the content to proceed."
+msgstr "请修改内容后继续。"
+
+msgid "cannot be a Member"
+msgstr "不能是成员"
+
+msgid "Invalid parameters"
+msgstr "参数无效"
+
+msgid "Not Found"
+msgstr "未找到"
+
+msgid "X-Last-Fetched-At header is required"
+msgstr "必须提供 X-Last-Fetched-At 请求头"
+
+msgid "per_page does not have a valid value"
+msgstr "per_page 的值无效"
+
+msgid "Missing consent challenge"
+msgstr "缺少同意挑战"
+
+msgid "Consent session expired or already used"
+msgstr "同意会话已过期或已被使用"
+
+msgid "IAM subject does not match current user"
+msgstr "IAM 主体与当前用户不匹配"
+
+msgid "User email not confirmed"
+msgstr "用户邮箱未确认"
+
+msgid "Request timed out. Please try a less complex query or a smaller set of records."
+msgstr "请求超时。请尝试更简单的查询或更少的记录。"
+
+msgid "Only one slug can be canonical per wiki metadata record"
+msgstr "每个 Wiki 元数据记录只能有一个规范 slug"
+
+msgid "The share of a language is between 0 and 100"
+msgstr "语言占比必须介于 0 和 100 之间"
+
+msgid "already exists in project"
+msgstr "在项目中已存在"
+
+msgid "already exists in repository"
+msgstr "在仓库中已存在"
+
+msgid "already exists in source"
+msgstr "在来源中已存在"
+
+msgid "already has a package with this normalized name and version"
+msgstr "已存在使用此规范化名称和版本的软件包"
+
+msgid "already scheduled for deletion"
+msgstr "已被计划删除"
+
+msgid "cannot be set to a restricted visibility level"
+msgstr "不能设置为受限的可见性级别"
+
+msgid "cannot be set without a cluster agent"
+msgstr "没有集群代理时无法设置"
+
+msgid "cannot be set without a kubernetes namespace"
+msgstr "没有 Kubernetes 命名空间时无法设置"
+
+msgid "has already been added"
+msgstr "已被添加"
+
+msgid "has already been taken. Please contact your administrator to generate a unique extern_uid / NameID"
+msgstr "已被占用。请联系管理员生成唯一的 extern_uid / NameID"
+
+msgid "invalid scope selected"
+msgstr "选择了无效范围"
+
+msgid "is a required field"
+msgstr "是必填字段"
+
+msgid "is already related"
+msgstr "已关联"
+
+msgid "is invalid"
+msgstr "无效"
+
+msgid "must be a boolean"
+msgstr "必须为布尔值"
+
+msgid "must be a hexadecimal APNs device token"
+msgstr "必须是十六进制的 APNs 设备令牌"
+
+msgid "must be a valid cargo package name"
+msgstr "必须是有效的 Cargo 软件包名称"
+
+msgid "must be a valid semantic version"
+msgstr "必须是有效的语义化版本"
+
+msgid "must be present if HTTPS-only is enabled"
+msgstr "启用仅 HTTPS 时必须提供"
+
+msgid "must contain only lowercase letters, numbers, and hyphens"
+msgstr "只能包含小写字母、数字和连字符"
+
+msgid "must follow semantic version"
+msgstr "必须遵循语义化版本"
+
+msgid "needs to be at least 10 minutes"
+msgstr "至少需要 10 分钟"
+
+msgid "needs to be non-negative"
+msgstr "必须为非负数"
+
+msgid "only allows hex characters"
+msgstr "只允许十六进制字符"
+
+msgid "should be unique in the project"
+msgstr "在项目中必须唯一"
+
+msgid "should have only one list preference per user"
+msgstr "每个用户只能有一个列表偏好设置"
+
+msgid "this action forbids content"
+msgstr "此操作禁止内容"
+
+msgid "this action needs content"
+msgstr "此操作需要内容"
+
+msgid "Another process is already processing a delete request. Please retry later."
+msgstr "另一个进程正在处理删除请求。请稍后重试。"
+
+msgid "At least one of move_before_id or move_after_id is required"
+msgstr "必须至少提供 move_before_id 或 move_after_id 之一"
+
+msgid "Can't abort the automatic merge"
+msgstr "无法中止自动合并"
+
+msgid "Can't cancel the automatic merge"
+msgstr "无法取消自动合并"
+
+msgid "Failed to create support PIN"
+msgstr "创建支持 PIN 失败"
+
+msgid "Failed to delete snippet repositories."
+msgstr "删除代码片段仓库失败。"
+
+msgid "Failed to remove snippets."
+msgstr "删除代码片段失败。"
+
+msgid "Failed to revoke support PIN"
+msgstr "撤销支持 PIN 失败"
+
+msgid "Invalid JSON response"
+msgstr "无效的 JSON 响应"
+
+msgid "No environments found for scheduled deletion. Either your query did not match any environments (default parameters match environments that are 30 days or older), or you have insufficient permissions to delete matching environments."
+msgstr "未找到计划删除的环境。您的查询可能未匹配任何环境（默认参数匹配 30 天或更早的环境），或者您没有删除匹配环境的足够权限。"
+
+msgid "Query timed out"
+msgstr "查询超时"
+
+msgid "Relation was removed"
+msgstr "关联已移除"
+
+msgid "Support PIN not found or already expired"
+msgstr "未找到支持 PIN 或该 PIN 已过期"
+
+msgid "Work item not found"
+msgstr "未找到工作项"
+
+msgid "You do not have permission to destroy environments in this project"
+msgstr "您没有销毁此项目中环境的权限"
+
+msgid "You do not have permission to move items to this namespace."
+msgstr "您没有将工作项移动到此命名空间的权限。"
+
+msgid "You don't have access to delete these snippets."
+msgstr "您无权删除这些代码片段。"
+
+msgid "You don't have permissions to update this work item"
+msgstr "您没有更新此工作项的权限"
+
+msgid "access forbidden"
+msgstr "访问被禁止"
+
+msgid "registry not enabled"
+msgstr "未启用容器镜像库"
+
+msgid "Cannot move work items from projects to groups."
+msgstr "无法将工作项从项目移动到群组。"
+
+msgid "User namespaces are not supported as target namespaces."
+msgstr "不支持将用户命名空间作为目标命名空间。"

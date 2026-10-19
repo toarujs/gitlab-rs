@@ -13,17 +13,10 @@ module GitlabRs
 
       MIN_BITS_PATTERN = /\Amust be at least (\d+) bits\z/
       FORBIDDEN_KEY_TYPE_PATTERN = /\Atype is forbidden\. Must be (.+)\z/
-      INVALID_KEY = 'errors.messages.invalid'
 
       def message
         raw_message = super
         return raw_message unless raw_message.is_a?(String)
-
-        # Rails ships an English "is invalid" in activerecord.errors.messages,
-        # which the gettext chain resolves before the translated generic key.
-        if raw_type == :invalid && raw_message == 'is invalid' && I18n.exists?(INVALID_KEY)
-          return I18n.t(INVALID_KEY)
-        end
 
         case raw_message
         when MIN_BITS_PATTERN
@@ -34,6 +27,55 @@ module GitlabRs
           # cached_find returns nil for unknown msgids, leaving the text intact.
           FastGettext.cached_find(raw_message) || raw_message
         end
+      end
+    end
+
+    # Service objects return hard-coded English messages that are rendered in
+    # flash notices and JSON responses. Translate them on access so every
+    # caller honors the current locale without patching upstream services.
+    module ServiceResponseMessages
+      def message
+        raw_message = super
+
+        if raw_message.is_a?(Array)
+          raw_message.map { |item| item.is_a?(String) ? (FastGettext.cached_find(item) || item) : item }
+        elsif raw_message.is_a?(String)
+          FastGettext.cached_find(raw_message) || raw_message
+        else
+          raw_message
+        end
+      end
+    end
+
+    MESSAGE_KEYS = %w[message error errors].freeze
+
+    def self.localize_json_messages(value, key = nil)
+      case value
+      when Hash
+        value.each_with_object({}) do |(child_key, child_value), result|
+          result[child_key] = localize_json_messages(child_value, child_key)
+        end
+      when Array
+        value.map { |item| localize_json_messages(item, key) }
+      when String
+        MESSAGE_KEYS.include?(key.to_s) ? (FastGettext.cached_find(value) || value) : value
+      else
+        value
+      end
+    end
+
+    # Controllers render a few user-facing messages directly as JSON.
+    module RenderJsonMessages
+      def render(*args, &block)
+        args = args.map do |arg|
+          if arg.is_a?(Hash) && arg[:json].is_a?(Hash)
+            arg.merge(json: GitlabRs::CiI18n.localize_json_messages(arg[:json]))
+          else
+            arg
+          end
+        end
+
+        super(*args, &block)
       end
     end
 
@@ -137,6 +179,8 @@ end
 Rails.application.config.to_prepare do
   {
     ::ActiveModel::Error => GitlabRs::CiI18n::ValidationMessages,
+    ::ServiceResponse => GitlabRs::CiI18n::ServiceResponseMessages,
+    ::ActionController::Base => GitlabRs::CiI18n::RenderJsonMessages,
     ::CommitStatusPresenter => GitlabRs::CiI18n::CommitStatusMessages,
     Ci::PipelinePresenter => GitlabRs::CiI18n::PipelineMessages,
     Ci::BuildPresenter => GitlabRs::CiI18n::BuildMessages,
