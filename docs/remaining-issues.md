@@ -24,19 +24,50 @@
 
 ### 0. 多语言（zh-CN）补全 — 下一版本
 
-**状态**：已完成的 CI/校验文案修复随 19.3.1（2026-10-17）发布；以下残留项暂缓，
-留到下一版本处理。扫描工具已入库，可直接复跑。
+**状态**：CI/校验文案已随 19.3.1（2026-10-17）发布；2026-10-19 继续补齐
+`ServiceResponse` / JSON `message` 运行时翻译与用户可见校验文案。扫描工具
+已入库，可直接复跑。生产镜像未变更。
+
+**本轮已完成（2026-10-17）**：
+
+- 补齐 `activerecord.errors.messages.invalid`，移除 `ValidationMessages#message`
+  的 `:invalid` 特判；`Key`、`Ci::Variable`、`Project`、`Group`、`User`、
+  `PersonalAccessToken` 的 `:invalid` 均走通用翻译路径。
+- 补齐 `activerecord.attributes.key.fingerprint_sha256`（`指纹（SHA256）`）与
+  `activerecord.attributes.application_setting.domain_denylist`（`域名拒绝列表`），
+  修复 `Fingerprint sha256无法生成`、`Domain denylist启用...` 的中英混排。
+- 复扫 CI 硬编码文案：`scan_hardcoded.py` 输出 93 行候选，其中 12 条不在 po，
+  均为 CSS 类名、Ruby 类名或多行字面量片段；对应用户可见文案的完整 msgid 已全部存在。
+- 验证：金丝雀 `Key#errors.full_messages` 为
+  `["组织必须存在", ..., "键是无效的", "指纹（SHA256）无法生成"]`；en/ja 仍回退英文。
+- 金丝雀验证镜像 `toarujs/gitlab_rs_test:i18n-todo-20261017`（`8f11fcf2488a`），
+  通过 `/dockerbuild/gitlab-rs-cs/docker-compose.i18n-todo.yaml` 重建后
+  `/-/readiness`、`/-/health` 均为 200；生产未变更。
+
+**本轮已完成（2026-10-19）**：
+
+- 全量 `scan_missing.py` 候选从 700 条降到 356 条。`triage_candidates.py`
+  分级后：`service_response` 236 条全部入库并运行时翻译；`validation`
+  用户可见项已翻；`api_response` 中完整 msgid 的 JSON `message` 已翻。
+- initializer 新增 `ServiceResponseMessages`（翻译 `ServiceResponse#message` /
+  `to_h[:message]` / `errors`）与 `RenderJsonMessages`（翻译
+  `render json: { message:/error:/errors: }` 中的字符串，不改其它 JSON 字段）。
+- 新建 `locale/zh_CN/service_messages.po.fragment`（303 条）；校验 fragment
+  补属性名 `activerecord.attributes.member.access_level`=`访问级别`，并把
+  自带属性名的校验文案改成纯消息，避免 `时区时区无效` 一类重复。
+- 验证（金丝雀 `i18n-todo6-20261019`=`45f6e0c0ff3e`）：
+  `ServiceResponse.error(message: "You don't have permissions to archive this project.")`
+  → `您没有归档此项目的权限。`；数组消息同步翻译；未知 msgid 原样返回；
+  en 回退英文；`Member` 校验 `访问级别不在列表中`；JSON helper
+  `{message: "Invalid parameters"}` → `参数无效`。`/-/readiness`、`/-/health`
+  均为 200。
 
 | 文件路径 | key / 位置 | 待办说明 |
 | --- | --- | --- |
-| `docker/gitlab-rails-overrides/config/initializers/gitlab_rs_ci_i18n.rb`（及 `-server` 副本） | `GitlabRs::CiI18n::ValidationMessages#message` | 去掉 `:invalid` 特判：改为在 po 中补 `activerecord.errors.messages.invalid`，并确认所有模型走同一路径 |
 | 同上 | `GitlabRs::CiI18n::{CommitStatusMessages,PipelineMessages,FailedStatusMessages,CompletionReasonMessages,PlayManualMessages}` | 用 `scripts/i18n/scan_hardcoded.py` 对新版本 CI 代码复扫，新增/变更的状态文案按 msgid 补翻 |
-| `locale/zh_CN/validation_messages.po.fragment` | `activerecord.attributes.key.fingerprint_sha256` | 现在显示 `Fingerprint sha256`，导致“Fingerprint sha256无法生成”混排；补属性名译文 |
-| 同上 | `activerecord.attributes.application_setting.domain_denylist` | 现在显示 `Domain denylist`，导致“Domain denylist启用...”混排；补属性名译文 |
-| 同上 | `activerecord.errors.messages.invalid` | Rails 的 activerecord 作用域返回英文 `is invalid`，当前靠 initializer 特判绕过；补 po 条目后移除特判 |
 | `locale/zh_CN/ci_messages.po.fragment` | `CI ID token issuance disabled for this project path` 等 116 条 | 仅在 en/ja 回归时复核；新增状态类文案继续追加到此 fragment |
-| `app/services/**`、`app/controllers/**`（上游） | `ServiceResponse.error(message:)`、`render json: { message: ... }` | 这些文案不经过 `ActiveModel::Error`，需要逐处确认是否用户可见，可见的用 `_()`/`s_()` 包裹 |
-| `scripts/i18n/scan_missing.py` | 全量 `app/` 扫描 | 下一版本先跑一遍并对候选分级：用户可见 / 仅日志 / 仅内部异常；只翻用户可见项 |
+| `app/services/**`、`app/controllers/**`（上游） | `ServiceResponse.error(message:)`、`render json: { message: ... }` | 已用 initializer 运行时翻译 + `service_messages.po.fragment`；新增 msgid 追加到该 fragment 即可，无需再逐处 `_()` 包裹 |
+| `scripts/i18n/scan_missing.py` | 全量 `app/` 扫描 | 2026-10-19 复扫 356 行。可跳过：log 166、worker/审计日志、多行字面量片段、CSS/类名、registry 协议码 `NAME_UNKNOWN`/`UNAVAILABLE`。剩余 other 中的 hash 风格 `error(message:)` 未走 `ServiceResponse`，如需补再追加 msgid |
 | `public/assets/locale/zh_CN/app-*.js.gz` | 前端翻译包 | 服务端修复不影响该独立包；如需补前端文案，按上游前端 i18n 流程更新 |
 
 ### 1. SafeLine WAF 拦截
@@ -48,15 +79,16 @@
 **待办**：
 - [ ] 配置 SafeLine WAF 白名单允许 git HTTP 请求通过 9071
 
-### 2. Docker Hub 推送被墙
+### 2. Docker Hub 推送
 
-**问题描述**：Docker Hub (registry-1.docker.io) 不可达
+**状态**：已完成（2026-10-17）
 
-**影响**：无法推送 Docker 镜像到 Docker Hub
-
-**待办**：
-- [ ] 解决 Docker Hub 网络问题后推送镜像
-- [ ] 或考虑使用其他镜像仓库（如阿里云、腾讯云）
+- `registry-1.docker.io` 与 `auth.docker.io` 可正常访问，登录凭据位于
+  `/root/.docker/config.json`。
+- `toarujs/gitlab-rs` 已推送 `19.3.1`、`19.3.1-rs.20261017`、`latest`
+  三个标签，远端 manifest 为
+  `sha256:93cffdb7aa5749edc74bc98d3cd5596774f7d602d4fa849240b36296b4163981`，
+  config digest 与本地生产镜像 `sha256:d35e89d43311...` 一致。
 
 ### 3. lang_switcher 注入导致前端报错
 
