@@ -906,3 +906,219 @@ msgstr "无法将工作项从项目移动到群组。"
 
 msgid "User namespaces are not supported as target namespaces."
 msgstr "不支持将用户命名空间作为目标命名空间。"
+
+msgid "Invalid page token"
+msgstr "无效的分页令牌"
+
+msgid "Successfully verified domain ownership"
+msgstr "已成功验证域名所有权"
+
+msgid "Failed to verify domain ownership"
+msgstr "验证域名所有权失败"
+
+msgid "Invalid mirror update request"
+msgstr "无效的镜像更新请求"
+
+msgid "You must select a Source and a Target revision"
+msgstr "必须选择源修订和目标修订"
+
+msgid "This integration is now configured"
+msgstr "此集成现已配置"
+
+msgid "Failed to configure integration"
+msgstr "配置集成失败"
+
+msgid "Failed to generate pipeline"
+msgstr "生成流水线失败"
+
+msgid "The project alias was updated successfully"
+msgstr "项目别名已成功更新"
+
+msgid "You have been unsubscribed"
+msgstr "您已取消订阅"
+
+msgid "orderBy parameter must contain one key-value pair."
+msgstr "orderBy 参数必须包含一个键值对。"
+
+msgid "SHA256 or size mismatch"
+msgstr "SHA256 或大小不匹配"
+
+msgid "Failed to remove snippet repository."
+msgstr "删除代码片段仓库失败。"
+
+msgid "API V3 is no longer supported. Use API V4 instead."
+msgstr "不再支持 API V3。请改用 API V4。"
+
+msgid "404 Not found"
+msgstr "404 未找到"
+
+msgid "409 Conflict: Resource lock"
+msgstr "409 冲突：资源锁定"
+
+msgid "404 Not Found"
+msgstr "404 未找到"
+
+msgid "Error retrieving Support PIN for user."
+msgstr "检索用户支持 PIN 时出错。"
+
+msgid "Error revoking Support PIN for user."
+msgstr "撤销用户支持 PIN 时出错。"
+
+msgid "Failed to revoke Support PIN"
+msgstr "撤销支持 PIN 失败"
+
+msgid "Wrong credentials"
+msgstr "凭据错误"
+
+msgid "Too Many Requests"
+msgstr "请求过多"
+
+msgid "Keyset pagination is not yet available for this type of request"
+msgstr "此类请求尚不支持键集分页"
+
+msgid "Remaining records can be retrieved using keyset pagination."
+msgstr "可以使用键集分页检索剩余记录。"
+
+msgid "No parameters provided"
+msgstr "未提供参数"
+
+msgid "Invalid url given"
+msgstr "提供的 URL 无效"
+
+msgid "Invalid branch filter given"
+msgstr "提供的分支过滤器无效"
+
+msgid "400 Missing header Content-Range"
+msgstr "400 缺少 Content-Range 请求头"
+
+msgid "416 Range Not Satisfiable"
+msgstr "416 范围无法满足"
+
+msgid "Illegal key or value"
+msgstr "非法的键或值"
+
+msgid "Could not unset variable"
+msgstr "无法取消设置变量"
+
+msgid "Could not unset custom header"
+msgstr "无法取消设置自定义请求头"
+
+msgid "Requests from Editor Extension clients are restricted"
+msgstr "来自编辑器扩展客户端的请求受到限制"
+
+msgid "Unsupported deploy token type"
+msgstr "不支持的部署令牌类型"
+
+msgid "Unsupported personal access token type"
+msgstr "不支持的个人访问令牌类型"
+
+msgid "Unsupported token type"
+msgstr "不支持的令牌类型"
+
+msgid "contains an invalid email address"
+msgstr "包含无效的电子邮件地址"
+
+msgid "is not portable"
+msgstr "不可移植"
+
+msgid "should be a valid file path"
+msgstr "应为有效的文件路径"
+
+msgid "should be a valid reference path"
+msgstr "应为有效的引用路径"
+
+msgid "should be a valid sha"
+msgstr "应为有效的 SHA"
+
+msgid "should be an array, 'None' or 'Any'"
+msgstr "应为数组、'None' 或 'Any'"
+
+msgid "Artifact SHA-256 not found"
+msgstr "未找到产物 SHA-256"
+
+msgid "Branch Not Found"
+msgstr "未找到分支"
+
+msgid "Cannot specify milestones and milestone_ids at the same time"
+msgstr "不能同时指定 milestones 和 milestone_ids"
+
+msgid "Deploy keys cannot be used to create personal access tokens"
+msgstr "部署密钥不能用于创建个人访问令牌"
+
+msgid "Deploy keys cannot be used to retrieve recovery codes"
+msgstr "部署密钥不能用于检索恢复码"
+
+msgid "Failed to create branch"
+msgstr "创建分支失败"
+
+msgid "Failed to parse attestation certificate"
+msgstr "解析证明证书失败"
+
+msgid "Failed to parse attestation file"
+msgstr "解析证明文件失败"
+
+msgid "Failed to parse attestation metadata"
+msgstr "解析证明元数据失败"
+
+msgid "Failed to process event"
+msgstr "处理事件失败"
+
+msgid "Group Not Found"
+msgstr "未找到群组"
+
+msgid "Group Variable Not Found"
+msgstr "未找到群组变量"
+
+msgid "Group or Organization not found"
+msgstr "未找到群组或组织"
+
+msgid "Instance Variable Not Found"
+msgstr "未找到实例变量"
+
+msgid "Internal Server Error"
+msgstr "内部服务器错误"
+
+msgid "Internal server error"
+msgstr "内部服务器错误"
+
+msgid "Invalid Request"
+msgstr "无效请求"
+
+msgid "Invalid Token"
+msgstr "无效令牌"
+
+msgid "Invalid file"
+msgstr "无效文件"
+
+msgid "Invalid params"
+msgstr "参数无效"
+
+msgid "JWT authentication failed"
+msgstr "JWT 认证失败"
+
+msgid "Method not found"
+msgstr "未找到方法"
+
+msgid "Precondition Failed"
+msgstr "前置条件失败"
+
+msgid "Precondition failed"
+msgstr "前置条件失败"
+
+msgid "Project Not Found"
+msgstr "未找到项目"
+
+msgid "Repository Not Found"
+msgstr "未找到仓库"
+
+msgid "Validation error"
+msgstr "验证错误"
+
+msgid "Validation failure"
+msgstr "验证失败"
+
+msgid "Variable Not Found"
+msgstr "未找到变量"
+
+msgid "Unsupported portable relation"
+msgstr "不支持的可移植关系"

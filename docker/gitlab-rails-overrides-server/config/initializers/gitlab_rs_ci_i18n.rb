@@ -35,19 +35,25 @@ module GitlabRs
     # caller honors the current locale without patching upstream services.
     module ServiceResponseMessages
       def message
-        raw_message = super
-
-        if raw_message.is_a?(Array)
-          raw_message.map { |item| item.is_a?(String) ? (FastGettext.cached_find(item) || item) : item }
-        elsif raw_message.is_a?(String)
-          FastGettext.cached_find(raw_message) || raw_message
-        else
-          raw_message
-        end
+        GitlabRs::CiI18n.translate_payload(super)
       end
     end
 
     MESSAGE_KEYS = %w[message error errors].freeze
+    FLASH_KEYS = %w[alert notice error warning].freeze
+
+    def self.translate_payload(value)
+      case value
+      when String
+        FastGettext.cached_find(value) || value
+      when Array
+        value.map { |item| translate_payload(item) }
+      when Hash
+        localize_json_messages(value)
+      else
+        value
+      end
+    end
 
     def self.localize_json_messages(value, key = nil)
       case value
@@ -68,14 +74,44 @@ module GitlabRs
     module RenderJsonMessages
       def render(*args, &block)
         args = args.map do |arg|
-          if arg.is_a?(Hash) && arg[:json].is_a?(Hash)
-            arg.merge(json: GitlabRs::CiI18n.localize_json_messages(arg[:json]))
-          else
-            arg
-          end
+          next arg unless arg.is_a?(Hash)
+
+          arg = arg.merge(json: GitlabRs::CiI18n.localize_json_messages(arg[:json])) if arg[:json].is_a?(Hash)
+          arg = arg.merge(plain: GitlabRs::CiI18n.translate_payload(arg[:plain])) if arg[:plain].is_a?(String)
+          arg = arg.merge(text: GitlabRs::CiI18n.translate_payload(arg[:text])) if arg[:text].is_a?(String)
+          arg
         end
 
         super(*args, &block)
+      end
+    end
+
+    module FlashMessages
+      def []=(key, value)
+        if GitlabRs::CiI18n::FLASH_KEYS.include?(key.to_s) && value.is_a?(String)
+          value = GitlabRs::CiI18n.translate_payload(value)
+        end
+
+        super
+      end
+    end
+
+    module GrapeErrorMessages
+      def error!(message, *args)
+        super(GitlabRs::CiI18n.translate_payload(message), *args)
+      end
+    end
+
+    module GrapeExceptionMessages
+      def message
+        GitlabRs::CiI18n.translate_payload(super)
+      end
+    end
+
+    module GraphQLErrorMessages
+      def initialize(message, ast_node: nil, ast_nodes: nil, options: nil, extensions: nil)
+        message = GitlabRs::CiI18n.translate_payload(message) if message.is_a?(String)
+        super(message, ast_node: ast_node, ast_nodes: ast_nodes, options: options, extensions: extensions)
       end
     end
 
@@ -181,6 +217,11 @@ Rails.application.config.to_prepare do
     ::ActiveModel::Error => GitlabRs::CiI18n::ValidationMessages,
     ::ServiceResponse => GitlabRs::CiI18n::ServiceResponseMessages,
     ::ActionController::Base => GitlabRs::CiI18n::RenderJsonMessages,
+    ::ActionDispatch::Flash::FlashHash => GitlabRs::CiI18n::FlashMessages,
+    ::Grape::DSL::InsideRoute => GitlabRs::CiI18n::GrapeErrorMessages,
+    ::Grape::Endpoint => GitlabRs::CiI18n::GrapeErrorMessages,
+    ::Grape::Exceptions::Base => GitlabRs::CiI18n::GrapeExceptionMessages,
+    ::GraphQL::ExecutionError => GitlabRs::CiI18n::GraphQLErrorMessages,
     ::CommitStatusPresenter => GitlabRs::CiI18n::CommitStatusMessages,
     Ci::PipelinePresenter => GitlabRs::CiI18n::PipelineMessages,
     Ci::BuildPresenter => GitlabRs::CiI18n::BuildMessages,
