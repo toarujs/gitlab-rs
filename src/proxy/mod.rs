@@ -77,6 +77,17 @@ fn is_static_asset_path(path: &str) -> bool {
         || lower.ends_with(".wasm")
 }
 
+fn honors_browser_conditional_get(path: &str) -> bool {
+    is_static_asset_path(path) || !path.contains("/-/")
+}
+
+fn strip_browser_conditional_get_headers(path: &str, headers: &mut HeaderMap) {
+    if !honors_browser_conditional_get(path) {
+        headers.remove("if-none-match");
+        headers.remove("if-modified-since");
+    }
+}
+
 fn response_allows_shared_cache(headers: &HeaderMap) -> bool {
     if headers.get("set-cookie").is_some() {
         return false;
@@ -377,7 +388,7 @@ pub async fn proxy_request_streaming(
     State(state): State<AppState>,
     method: Method,
     uri: Uri,
-    headers: HeaderMap,
+    mut headers: HeaderMap,
     body: Body,
 ) -> Result<Response, StatusCode> {
     let request_id = uuid::Uuid::new_v4().to_string();
@@ -415,6 +426,8 @@ pub async fn proxy_request_streaming(
             return Err(StatusCode::FORBIDDEN);
         }
     }
+
+    strip_browser_conditional_get_headers(uri.path(), &mut headers);
 
     // Git LFS object uploads use Workhorse's request-body uploader: buffer the
     // raw payload to a temp file, then hand Rails a signed form body. Rails'
@@ -502,10 +515,12 @@ pub async fn proxy_request_streaming(
                 let etag = format!("\"{:x}\"", md5::compute(&entry.data));
                 response_headers.insert("etag", etag.parse().unwrap());
                 // Check If-None-Match header for conditional request
-                if let Some(if_none_match) = headers.get("if-none-match") {
-                    if let Ok(client_etag) = if_none_match.to_str() {
-                        if client_etag == etag || client_etag == "*" {
-                            return Ok(StatusCode::NOT_MODIFIED.into_response());
+                if honors_browser_conditional_get(uri.path()) {
+                    if let Some(if_none_match) = headers.get("if-none-match") {
+                        if let Ok(client_etag) = if_none_match.to_str() {
+                            if client_etag == etag || client_etag == "*" {
+                                return Ok(StatusCode::NOT_MODIFIED.into_response());
+                            }
                         }
                     }
                 }
@@ -722,12 +737,20 @@ async fn process_response_pipeline(
         }
     }
 
-    if *method == Method::GET && status.is_success() && !filtered.contains_key("etag") {
+    if honors_browser_conditional_get(uri.path())
+        && *method == Method::GET
+        && status.is_success()
+        && !filtered.contains_key("etag")
+    {
         let etag = format!("\"{:x}\"", md5::compute(&body_bytes));
         filtered.insert("etag", etag.parse().unwrap());
     }
 
-    if *method == Method::GET && status.is_success() && !crate::webide_nls::is_nls_messages_path(uri.path()) {
+    if honors_browser_conditional_get(uri.path())
+        && *method == Method::GET
+        && status.is_success()
+        && !crate::webide_nls::is_nls_messages_path(uri.path())
+    {
         if let Some(if_none_match) = request_headers.get("if-none-match") {
             if let Some(etag) = filtered.get("etag") {
                 if let (Ok(client_etag), Ok(server_etag)) = (if_none_match.to_str(), etag.to_str()) {
@@ -737,6 +760,13 @@ async fn process_response_pipeline(
                 }
             }
         }
+    }
+
+    if filtered.contains_key("poll-interval") {
+        filtered.insert(
+            "cache-control",
+            HeaderValue::from_static("no-cache, no-store, must-revalidate"),
+        );
     }
 
     Ok((status, filtered, body_bytes).into_response())
@@ -2105,5 +2135,33 @@ mod tests {
         assert!(!is_lfs_upload_path(&format!("/g/r.git/gitlab-lfs/objects/{}", oid)));
         // The oid must be a 64-char hex digest.
         assert!(!is_lfs_upload_path("/g/r.git/gitlab-lfs/objects/notahash/33"));
+    }
+
+    #[test]
+    fn test_honors_browser_conditional_get_keeps_assets_and_api() {
+        assert!(honors_browser_conditional_get("/assets/application.js"));
+        assert!(honors_browser_conditional_get("/api/v4/projects"));
+        assert!(!honors_browser_conditional_get("/toaru/seed-vc-pro/-/jobs/40.json"));
+        assert!(!honors_browser_conditional_get("/group/project/-/pipelines.json"));
+    }
+
+    #[test]
+    fn test_strip_browser_conditional_get_headers_on_ui_poll_paths() {
+        let mut headers = HeaderMap::new();
+        headers.insert("if-none-match", "\"abc\"".parse().unwrap());
+        headers.insert("if-modified-since", "Wed, 21 Oct 2015 07:28:00 GMT".parse().unwrap());
+        strip_browser_conditional_get_headers("/ns/p/-/jobs/1.json", &mut headers);
+        assert!(!headers.contains_key("if-none-match"));
+        assert!(!headers.contains_key("if-modified-since"));
+
+        let mut asset_headers = HeaderMap::new();
+        asset_headers.insert("if-none-match", "\"abc\"".parse().unwrap());
+        strip_browser_conditional_get_headers("/assets/app.js", &mut asset_headers);
+        assert!(asset_headers.contains_key("if-none-match"));
+
+        let mut api_headers = HeaderMap::new();
+        api_headers.insert("if-none-match", "\"abc\"".parse().unwrap());
+        strip_browser_conditional_get_headers("/api/v4/projects", &mut api_headers);
+        assert!(api_headers.contains_key("if-none-match"));
     }
 }
