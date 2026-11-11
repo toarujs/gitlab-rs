@@ -97742,3 +97742,30 @@ msgstr "未找到变量"
 
 msgid "Unsupported portable relation"
 msgstr "不支持的可移植关系"
+
+msgid "GitlabRs|One-time invite link"
+msgstr "一次性邀请链接"
+
+msgid "GitlabRs|Complete your account"
+msgstr "完善帐户"
+
+msgid "GitlabRs|An administrator invited you. Fill in your account details to join."
+msgstr "管理员邀请你加入。请填写帐户信息完成注册。"
+
+msgid "GitlabRs|Invite link is invalid"
+msgstr "邀请链接无效"
+
+msgid "GitlabRs|This invite link is missing, expired, or already used."
+msgstr "该邀请链接不存在、已过期或已被使用。"
+
+msgid "GitlabRs|Create account"
+msgstr "创建帐户"
+
+msgid "GitlabRs|Account created. You can sign in now."
+msgstr "帐户已创建，现在可以登录。"
+
+msgid "GitlabRs|Sign in"
+msgstr "登录"
+
+msgid "GitlabRs|Password confirmation does not match."
+msgstr "两次输入的密码不一致。"

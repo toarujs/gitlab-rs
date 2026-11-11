@@ -1,0 +1,33 @@
+- page_title s_('GitlabRs|Complete your account')
+
+.gl-my-5
+  - if @invite_invalid
+    %h2.gl-mb-3= s_('GitlabRs|Invite link is invalid')
+    %p= s_('GitlabRs|This invite link is missing, expired, or already used.')
+    %p
+      = link_to s_('GitlabRs|Sign in'), new_user_session_path
+  - else
+    %h2.gl-mb-3= s_('GitlabRs|Complete your account')
+    %p.gl-mb-4= s_('GitlabRs|An administrator invited you. Fill in your account details to join.')
+    - if @errors.present?
+      .gl-alert.gl-alert-danger.gl-mb-4{ role: 'alert' }
+        - @errors.each do |message|
+          %p.gl-mb-0= message
+    = form_tag "/-/gitlab-rs/invite/#{@token}", method: :post, class: 'gl-mt-3' do
+      = hidden_field_tag :authenticity_token, form_authenticity_token
+      .form-group.gl-form-group.gl-mb-3
+        = label_tag :name, _('Name'), class: 'gl-block col-form-label'
+        = text_field_tag :name, @user&.name, required: true, autocomplete: 'name', class: 'form-control gl-form-input gl-form-input-lg'
+      .form-group.gl-form-group.gl-mb-3
+        = label_tag :username, _('Username'), class: 'gl-block col-form-label'
+        = text_field_tag :username, @user&.username, required: true, autocomplete: 'username', class: 'form-control gl-form-input gl-form-input-lg'
+      .form-group.gl-form-group.gl-mb-3
+        = label_tag :email, _('Email'), class: 'gl-block col-form-label'
+        = email_field_tag :email, @user&.email, required: true, autocomplete: 'email', class: 'form-control gl-form-input gl-form-input-lg'
+      .form-group.gl-form-group.gl-mb-3
+        = label_tag :password, _('Password'), class: 'gl-block col-form-label'
+        = password_field_tag :password, nil, required: true, autocomplete: 'new-password', class: 'form-control gl-form-input gl-form-input-lg'
+      .form-group.gl-form-group.gl-mb-4
+        = label_tag :password_confirmation, _('Password confirmation'), class: 'gl-block col-form-label'
+        = password_field_tag :password_confirmation, nil, required: true, autocomplete: 'new-password', class: 'form-control gl-form-input gl-form-input-lg'
+      = submit_tag s_('GitlabRs|Create account'), class: 'btn btn-confirm btn-md gl-button'

@@ -66,6 +66,8 @@ COPY --from=builder /build/docker/gitlab-rails-overrides/config/initializers/git
      /opt/gitlab/embedded/service/gitlab-rails/config/initializers/gitlab_rs_cve_guards.rb
 COPY --from=builder /build/docker/gitlab-rails-overrides/config/initializers/gitlab_rs_ci_i18n.rb \
      /opt/gitlab/embedded/service/gitlab-rails/config/initializers/gitlab_rs_ci_i18n.rb
+COPY --from=builder /build/docker/gitlab-rails-overrides/config/initializers/gitlab_rs_invite_links.rb \
+     /opt/gitlab/embedded/service/gitlab-rails/config/initializers/gitlab_rs_invite_links.rb
 COPY --from=builder /build/docker/gitlab-rails-overrides/config/initializers/gitlab_rs_compress_history.rb \
      /opt/gitlab/embedded/service/gitlab-rails/config/initializers/gitlab_rs_compress_history.rb
 COPY --from=builder /build/docker/gitlab-rails-overrides/app/views/projects/_tree_content.html.haml \
@@ -76,6 +78,12 @@ COPY --from=builder /build/docker/gitlab-rails-overrides/app/views/projects/blob
      /opt/gitlab/embedded/service/gitlab-rails/app/views/projects/blob/_blob.html.haml
 COPY --from=builder /build/docker/gitlab-rails-overrides/public/gitlab-rs-compress-history.js \
      /opt/gitlab/embedded/service/gitlab-rails/public/gitlab-rs-compress-history.js
+COPY --from=builder /build/docker/gitlab-rails-overrides/app/views/admin/users/_form.html.haml \
+     /opt/gitlab/embedded/service/gitlab-rails/app/views/admin/users/_form.html.haml
+COPY --from=builder /build/docker/gitlab-rails-overrides/app/views/gitlab_rs/invite_links/show.html.haml \
+     /opt/gitlab/embedded/service/gitlab-rails/app/views/gitlab_rs/invite_links/show.html.haml
+COPY --from=builder /build/docker/gitlab-rails-overrides/public/gitlab-rs-invite-link.js \
+     /opt/gitlab/embedded/service/gitlab-rails/public/gitlab-rs-invite-link.js
 
 # 设置权限
 RUN chmod +x /opt/gitlab/embedded/bin/gitlab-workhorse && \
