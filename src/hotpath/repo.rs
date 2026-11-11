@@ -648,6 +648,17 @@ fn file_not_found_hit() -> AccelResult {
     )
 }
 
+fn archive_rate_limited_hit() -> AccelResult {
+    AccelResult::Hit(
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            [(header::CONTENT_TYPE, "text/plain")],
+            "Retry later\n",
+        )
+            .into_response(),
+    )
+}
+
 fn commit_not_found_hit() -> AccelResult {
     AccelResult::Hit(
         (
@@ -1186,6 +1197,9 @@ async fn fetch_archive(
     {
         Ok(s) => s,
         Err(status) if status.code() == tonic::Code::NotFound => return file_not_found_hit(),
+        Err(status) if status.code() == tonic::Code::ResourceExhausted => {
+            return archive_rate_limited_hit();
+        }
         Err(e) => {
             return record_error(state, ARCHIVE_PATH_TEMPLATE, &format!("gitaly archive: {e}"))
         }

@@ -114,6 +114,14 @@ pub struct McpServerConfig {
     pub trusted: bool,
 }
 
+impl McpServerConfig {
+    /// Official workhorse strips `trusted` from client-supplied MCP tools so a
+    /// caller cannot self-approve privileged tool execution.
+    pub fn strip_client_trusted(&mut self) {
+        self.trusted = false;
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DuoWorkflowServiceConfig {
     #[serde(default)]
@@ -138,6 +146,14 @@ pub struct DuoWorkflow {
     pub server_capabilities: Vec<String>,
     #[serde(rename = "TimeoutHTTPRequests", default)]
     pub timeout_http_requests: bool,
+}
+
+impl DuoWorkflow {
+    pub fn strip_client_mcp_trusted(&mut self) {
+        for server in self.mcp_servers.values_mut() {
+            server.strip_client_trusted();
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -378,5 +394,21 @@ mod tests {
         let gitaly = auth.gitaly_server.expect("GitalyServer");
         assert_eq!(gitaly.call_metadata.get("gitaly-feature-flag").map(String::as_str), Some(""));
         assert_eq!(gitaly.call_metadata.get("ok").map(String::as_str), Some("1"));
+    }
+
+    #[test]
+    fn strips_trusted_flag_from_client_mcp_servers() {
+        let json = r#"{
+            "McpServers": {
+                "demo": {
+                    "url": "https://mcp.example",
+                    "trusted": true
+                }
+            }
+        }"#;
+        let mut duo: DuoWorkflow = serde_json::from_str(json).expect("mcp json");
+        assert!(duo.mcp_servers["demo"].trusted);
+        duo.strip_client_mcp_trusted();
+        assert!(!duo.mcp_servers["demo"].trusted);
     }
 }

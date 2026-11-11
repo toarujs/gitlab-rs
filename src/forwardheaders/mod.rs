@@ -95,7 +95,18 @@ const PROTECTED_RESPONSE_HEADERS: &[&str] = &[
     "gitlab-workhorse-send-data",
     "gitlab-workhorse-detect-content-type",
     "x-sendfile",
+    "x-sendfile-type",
+    "x-accel-redirect",
 ];
+
+/// CVE-2026-105777 class: Rails/Workhorse internal credentials and send-data
+/// payloads must never reach the browser.
+fn is_internal_response_header(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    PROTECTED_RESPONSE_HEADERS.contains(&lower.as_str())
+        || lower.starts_with("gitlab-workhorse-")
+        || lower.starts_with("grpc-metadata-")
+}
 
 /// Forward request headers, filtering out hop-by-hop headers
 pub fn forward_request_headers(
@@ -151,7 +162,7 @@ pub fn forward_response_headers(
         let key_lower = key.as_str().to_lowercase();
 
         // Skip protected response headers
-        if PROTECTED_RESPONSE_HEADERS.contains(&key_lower.as_str()) {
+        if is_internal_response_header(&key_lower) {
             continue;
         }
 
@@ -242,6 +253,28 @@ mod tests {
         assert!(result.contains_key("authorization"));
         assert!(!result.contains_key("gitlab-workhorse-send-data"));
         assert!(!result.contains_key("x-sendfile"));
+    }
+
+    #[test]
+    fn strips_internal_credential_headers_from_response() {
+        let mut upstream = HeaderMap::new();
+        upstream.insert("content-type", "application/json".parse().unwrap());
+        upstream.insert(
+            "gitlab-workhorse-api-request",
+            "eyJhbGciOiJIUzI1NiJ9.payload".parse().unwrap(),
+        );
+        upstream.insert("gitlab-workhorse-notify-channel", "chan".parse().unwrap());
+        upstream.insert("x-accel-redirect", "/internal/secret".parse().unwrap());
+        upstream.insert(
+            "grpc-metadata-authorization",
+            "Bearer gitaly-token".parse().unwrap(),
+        );
+        let result = forward_response_headers(&upstream, None, &[]);
+        assert!(result.contains_key("content-type"));
+        assert!(!result.contains_key("gitlab-workhorse-api-request"));
+        assert!(!result.contains_key("gitlab-workhorse-notify-channel"));
+        assert!(!result.contains_key("x-accel-redirect"));
+        assert!(!result.contains_key("grpc-metadata-authorization"));
     }
 
 }

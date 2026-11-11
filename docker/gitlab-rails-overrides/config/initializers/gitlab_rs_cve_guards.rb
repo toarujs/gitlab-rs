@@ -2,7 +2,8 @@
 
 # gitlab-rs: reconstruct CE 19.3.2+ commits/files file.path handling
 # (CVE-2026-85706 class) and cap untrusted CI regex length
-# (CVE-2026-89078 / 93577 class). Defense in depth on CE 19.3.3 Onigmo.
+# (CVE-2026-89078 / 93577 class). Org-mode highlighting is served as
+# escaped plaintext (CVE-2026-110264 class) until CE 19.3.6+ Ruby/Onigmo.
 
 module GitlabRsUploadedFilePathGuard
   ALLOWED_PREFIXES = %w[
@@ -52,6 +53,27 @@ module GitlabRsUntrustedRegexpGuard
   end
 end
 
+module GitlabRsOrgHighlightGuard
+  def highlight(blob_name, blob_content, language: nil, **kwargs)
+    if gitlab_rs_org_blob?(blob_name, language)
+      return ERB::Util.html_escape(blob_content.to_s)
+    end
+
+    super
+  end
+
+  def gitlab_rs_org_blob?(blob_name, language)
+    blob_name.to_s.downcase.end_with?('.org') || language.to_s.downcase == 'org'
+  end
+end
+
+def gitlab_rs_disable_rouge_org_lexer!
+  return unless defined?(Rouge::Lexers::Org)
+
+  Rouge::Lexers::Org.instance_variable_set(:@filenames, [])
+  Rouge::Lexers::Org.instance_variable_set(:@mimetypes, [])
+end
+
 Rails.application.config.to_prepare do
   if defined?(UploadedFile) && UploadedFile.respond_to?(:from_params)
     UploadedFile.singleton_class.prepend(GitlabRsUploadedFilePathGuard)
@@ -60,4 +82,10 @@ Rails.application.config.to_prepare do
   if defined?(Gitlab::UntrustedRegexp)
     Gitlab::UntrustedRegexp.prepend(GitlabRsUntrustedRegexpGuard)
   end
+
+  if defined?(Gitlab::Highlight) && Gitlab::Highlight.respond_to?(:highlight)
+    Gitlab::Highlight.singleton_class.prepend(GitlabRsOrgHighlightGuard)
+  end
+
+  gitlab_rs_disable_rouge_org_lexer!
 end

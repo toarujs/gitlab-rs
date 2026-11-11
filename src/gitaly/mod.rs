@@ -890,6 +890,18 @@ pub fn resolve_repo_path(gitaly_repo: &Repository) -> Result<PathBuf, std::io::E
     ))
 }
 
+/// Map Gitaly archive RPC failures to HTTP, matching Go workhorse
+/// (`ResourceExhausted` -> 429).
+pub fn archive_http_status(code: tonic::Code) -> axum::http::StatusCode {
+    match code {
+        tonic::Code::ResourceExhausted => axum::http::StatusCode::TOO_MANY_REQUESTS,
+        tonic::Code::NotFound => axum::http::StatusCode::NOT_FOUND,
+        tonic::Code::InvalidArgument => axum::http::StatusCode::BAD_REQUEST,
+        tonic::Code::PermissionDenied => axum::http::StatusCode::FORBIDDEN,
+        _ => axum::http::StatusCode::BAD_GATEWAY,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -929,6 +941,22 @@ mod tests {
         assert_eq!(
             req.metadata().get("authorization").unwrap().to_str().unwrap(),
             "Bearer secret"
+        );
+    }
+
+    #[test]
+    fn archive_http_status_maps_resource_exhausted_to_429() {
+        assert_eq!(
+            archive_http_status(tonic::Code::ResourceExhausted),
+            axum::http::StatusCode::TOO_MANY_REQUESTS
+        );
+        assert_eq!(
+            archive_http_status(tonic::Code::NotFound),
+            axum::http::StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            archive_http_status(tonic::Code::Internal),
+            axum::http::StatusCode::BAD_GATEWAY
         );
     }
 }

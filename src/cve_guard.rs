@@ -2,7 +2,8 @@
 //!
 //! Covers the commits/files write surface (CVE-2026-85706 class) and strips
 //! client-injected send-data headers. CI regex RCE (CVE-2026-89078 / 93577)
-//! lives in Rails/Onigmo and still needs CE 19.3.3 for the native engine.
+//! lives in Rails/Onigmo and still needs CE 19.3.6+ (patched Ruby) for the
+//! native engine. Companion overlays cover Org-mode highlighting.
 
 use axum::{
     body::Body,

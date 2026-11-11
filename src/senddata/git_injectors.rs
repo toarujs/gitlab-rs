@@ -171,7 +171,7 @@ pub async fn git_archive_inject(
         let mut client = connect_gitaly_client(server).await?;
         let data = client.get_archive(request).await.map_err(|e| {
             tracing::error!("Gitaly get_archive failed: {}", e);
-            StatusCode::BAD_GATEWAY
+            crate::gitaly::archive_http_status(e.code())
         })?;
 
         // Best-effort cache write so repeat downloads skip Gitaly.

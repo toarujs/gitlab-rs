@@ -58,7 +58,23 @@ fn should_cache_response(method: &Method, path: &str) -> bool {
         && !crate::webide_nls::is_nls_messages_path(path)
 }
 
+/// Repository blobs, raw files, and OIDC discovery must never be treated as
+/// hashed `/assets/*` files. Suffix-only matching would cache
+/// `/:ns/:project/-/raw/:ref/app.js` (CVE-2026-14814 class) and could pin a
+/// poisoned OAuth discovery document (CVE-2026-112212 class).
+fn is_uncacheable_content_path(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.contains("/-/")
+        || lower.contains("/raw/")
+        || lower.contains("/blob/")
+        || lower.starts_with("/.well-known/")
+        || lower.starts_with("/oauth/")
+}
+
 fn is_static_asset_path(path: &str) -> bool {
+    if is_uncacheable_content_path(path) {
+        return false;
+    }
     let lower = path.to_ascii_lowercase();
     lower.ends_with(".js")
         || lower.ends_with(".css")
@@ -2009,6 +2025,28 @@ mod tests {
     }
 
     #[test]
+    fn test_skip_cache_for_repository_raw_and_oidc_discovery() {
+        assert!(!should_cache_response(
+            &Method::GET,
+            "/group/project/-/raw/master/app.js"
+        ));
+        assert!(!should_cache_response(
+            &Method::GET,
+            "/group/project/raw/master/app.js"
+        ));
+        assert!(!should_cache_response(
+            &Method::GET,
+            "/group/project/-/blob/master/app.js"
+        ));
+        assert!(!should_cache_response(
+            &Method::GET,
+            "/.well-known/openid-configuration"
+        ));
+        assert!(!should_cache_response(&Method::GET, "/oauth/discovery/keys"));
+        assert!(should_cache_response(&Method::GET, "/assets/app.js"));
+    }
+
+    #[test]
     fn test_skip_cache_for_html_login_and_nls() {
         assert!(!should_cache_response(&Method::GET, "/users/sign_in"));
         assert!(!should_cache_response(&Method::GET, "/"));
@@ -2143,6 +2181,9 @@ mod tests {
         assert!(honors_browser_conditional_get("/api/v4/projects"));
         assert!(!honors_browser_conditional_get("/toaru/seed-vc-pro/-/jobs/40.json"));
         assert!(!honors_browser_conditional_get("/group/project/-/pipelines.json"));
+        assert!(!honors_browser_conditional_get(
+            "/group/project/-/raw/master/app.js"
+        ));
     }
 
     #[test]
