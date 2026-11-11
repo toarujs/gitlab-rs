@@ -40,6 +40,7 @@
   - 官方 GitLab CE 与本修改版只改 compose `image:` 即可切换；数据卷、端口、`.env` 布局与官方兼容。生产 tag `toarujs/gitlab-rs:<CE版本>`，金丝雀 `toarujs/gitlab_rs_test:latest`
   - 每次升 CE：Dockerfile `FROM gitlab/gitlab-ce:<ver>-ce.0`，合并官方补丁与 SQL migration，同时 COPY 保留已有 overlay（Rust workhorse、i18n、cve_guards、compress_history、avatar 10MiB）
   - 跨版本升级前备份 Postgres（`pg_dump -U gitlab -Fc gitlabhq_production`）；启动后等 omnibus `db:migrate` 完成再验收。失败则 compose 钉升级前 tag 回退
+  - 2026-11-11：9071 已吸收官方 CE **19.3.6**（`gitlab/gitlab-ce:19.3.6-ce.0`）。web `toarujs/gitlab_rs_test:latest`=`a7f4214be7d5`（同 tag `:19.3.6`），`/version` `git_sha=45f49a8a0205ee8b73b9ed0e7282ebde316f8f35`。回退 `pre-ce1936`=`847639833808`。构建 `/dockerbuild/gitlab-rs/ce1936-build/`。库备份 `/dockerbuild/gitlab-rs/backups/pre-ce1936.dump`。migrate 至 `20260928091307`。代码 `origin/260914-feat-ci-long-polling` @ `45f49a8`。9061 未动（`toarujs/gitlab-rs:19.3.1`=`d35e89d43311`，VERSION 19.3.1）。确认后再打 `toarujs/gitlab-rs:19.3.6` 升生产。
 
 [GitHub 与 Gitee 分仓]
 - Date: 2026-09-09
