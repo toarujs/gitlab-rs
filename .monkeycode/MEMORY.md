@@ -37,6 +37,9 @@
   - 项目列表打不开时优先查 Gitaly：`docker exec gitlab-rs-cs gitlab-ctl status gitaly`，以及 `/var/opt/gitlab/git-data/repositories/+gitaly` 是否为 `git:git`
   - Gitaly hook 正确配置键：`gitlab_rails['internal_api_url'] = "http://127.0.0.1:80"`（Rust Workhorse TCP :80）
   - `entrypoint-server.sh` 在写入 `gitlab.rb` 后会追加该键，避免 `GITLAB_OMNIBUS_CONFIG` 覆盖后 reconfigure 回到死 socket `http+unix://%2Fvar%2Fopt%2Fgitlab%2Fgitlab-workhorse%2Fsockets%2Fsocket`
+  - 官方 GitLab CE 与本修改版只改 compose `image:` 即可切换；数据卷、端口、`.env` 布局与官方兼容。生产 tag `toarujs/gitlab-rs:<CE版本>`，金丝雀 `toarujs/gitlab_rs_test:latest`
+  - 每次升 CE：Dockerfile `FROM gitlab/gitlab-ce:<ver>-ce.0`，合并官方补丁与 SQL migration，同时 COPY 保留已有 overlay（Rust workhorse、i18n、cve_guards、compress_history、avatar 10MiB）
+  - 跨版本升级前备份 Postgres（`pg_dump -U gitlab -Fc gitlabhq_production`）；启动后等 omnibus `db:migrate` 完成再验收。失败则 compose 钉升级前 tag 回退
 
 [GitHub 与 Gitee 分仓]
 - Date: 2026-09-09

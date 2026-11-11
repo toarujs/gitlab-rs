@@ -1,7 +1,7 @@
-ARG GITLAB_CE_VERSION=19.3.3-ce.0
+ARG GITLAB_CE_VERSION=19.3.6-ce.0
 FROM gitlab/gitlab-ce:${GITLAB_CE_VERSION}
 
-LABEL gitlab.ce.version="19.3.3"
+LABEL gitlab.ce.version="19.3.6"
 
 # 安装 WebP 运行时库 (移动端图片优化)
 RUN apt-get update && apt-get install -y libwebp7 && rm -rf /var/lib/apt/lists/*
@@ -13,7 +13,7 @@ RUN rm -f /opt/gitlab/embedded/sbin/nginx && rm -rf /opt/gitlab/embedded/nginx
 COPY gitlab-workhorse-rs /opt/gitlab/embedded/bin/gitlab-workhorse
 
 # 复制启动脚本 (覆盖官方 entrypoint)
-COPY entrypoint.sh /assets/init-container
+COPY entrypoint-server.sh /assets/init-container
 
 # 覆盖 GitLab Rails 源码：头像限制改为 10 MiB
 COPY gitlab-rails-overrides/app/models/concerns/avatarable.rb \

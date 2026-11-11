@@ -1,7 +1,7 @@
-ARG GITLAB_CE_VERSION=19.3.3-ce.0
+ARG GITLAB_CE_VERSION=19.3.6-ce.0
 FROM gitlab/gitlab-ce:${GITLAB_CE_VERSION}
 
-LABEL gitlab.ce.version="19.3.3"
+LABEL gitlab.ce.version="19.3.6"
 
 # 安装 WebP 运行时库 (移动端图片优化)
 RUN apt-get update && apt-get install -y libwebp7 && rm -rf /var/lib/apt/lists/*
