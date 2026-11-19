@@ -47,6 +47,7 @@ pub struct RunnerFeatures {
     pub refspecs: bool,
     pub multi_build_steps: bool,
     pub cancelable: bool,
+    pub services: bool,
 }
 
 impl Default for RunnerFeatures {
@@ -61,6 +62,7 @@ impl Default for RunnerFeatures {
             refspecs: true,
             multi_build_steps: true,
             cancelable: true,
+            services: true,
         }
     }
 }

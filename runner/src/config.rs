@@ -28,6 +28,8 @@ pub struct RunnerSection {
     #[serde(default)]
     pub clone_url: Option<String>,
     #[serde(default)]
+    pub environment: Vec<String>,
+    #[serde(default)]
     pub docker: Option<DockerSection>,
 }
 
@@ -45,10 +47,16 @@ pub struct DockerSection {
     pub privileged: bool,
     #[serde(default)]
     pub tls_verify: bool,
+    #[serde(default = "default_wait_for_services")]
+    pub wait_for_services_timeout: i64,
 }
 
 fn default_image() -> String {
     "ubuntu:latest".to_string()
+}
+
+fn default_wait_for_services() -> i64 {
+    30
 }
 
 impl RunnerConfig {
@@ -146,6 +154,40 @@ shutdown_timeout = 0
         assert_eq!(
             cfg.runners[0].docker.as_ref().unwrap().network_mode.as_deref(),
             Some("gitlab-rs-net")
+        );
+        assert_eq!(cfg.runners[0].docker.as_ref().unwrap().wait_for_services_timeout, 30);
+        assert!(cfg.runners[0].environment.is_empty());
+    }
+
+    #[test]
+    fn parses_service_and_environment_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"
+[[runners]]
+  name = "x"
+  url = "http://web"
+  token = "t"
+  executor = "docker"
+  environment = ["DOCKER_TLS_CERTDIR=", "DOCKER_DRIVER=overlay2"]
+  [runners.docker]
+    image = "ubuntu:latest"
+    privileged = true
+    volumes = ["/cache", "/etc/docker/daemon.json:/etc/docker/daemon.json:ro"]
+    wait_for_services_timeout = 120
+"#,
+        )
+        .unwrap();
+        let cfg = RunnerConfig::load(&path).unwrap();
+        assert_eq!(cfg.runners[0].environment, vec!["DOCKER_TLS_CERTDIR=", "DOCKER_DRIVER=overlay2"]);
+        let docker = cfg.runners[0].docker.as_ref().unwrap();
+        assert!(docker.privileged);
+        assert_eq!(docker.wait_for_services_timeout, 120);
+        assert_eq!(
+            docker.volumes,
+            vec!["/cache", "/etc/docker/daemon.json:/etc/docker/daemon.json:ro"]
         );
     }
 

@@ -228,7 +228,16 @@ async fn execute_job(
         .filter(|s| !s.is_empty())
         .unwrap_or(runner.url.as_str());
 
-    let outcome = match executor::run_job(&docker, &job, &docker_cfg, clone_base, &mut trace).await {
+    let outcome = match executor::run_job(
+        &docker,
+        &job,
+        &docker_cfg,
+        clone_base,
+        &runner.environment,
+        &mut trace,
+    )
+    .await
+    {
         Ok(o) => o,
         Err(err) => {
             let _ = trace.append_line(&format!("ERROR: {err}")).await;
