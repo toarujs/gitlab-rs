@@ -38,6 +38,7 @@
   - Gitaly hook 正确配置键：`gitlab_rails['internal_api_url'] = "http://127.0.0.1:80"`（Rust Workhorse TCP :80）
   - `entrypoint-server.sh` 在写入 `gitlab.rb` 后会追加该键，避免 `GITLAB_OMNIBUS_CONFIG` 覆盖后 reconfigure 回到死 socket `http+unix://%2Fvar%2Fopt%2Fgitlab%2Fgitlab-workhorse%2Fsockets%2Fsocket`
   - 官方 GitLab CE 与本修改版只改 compose `image:` 即可切换；数据卷、端口、`.env` 布局与官方兼容。生产 tag `toarujs/gitlab-rs:<CE版本>`，金丝雀 `toarujs/gitlab_rs_test:latest`
+  - 官方 → 自改：只改 compose `image:`。自改 → 官方：先跑 `scripts/cleanup-gitlab-rs-overlay.sh`（清 Redis `gitlab-rs:*` 与 overlay SQL），再改 `image:`。不要求无缝切回。
   - 每次升 CE：Dockerfile `FROM gitlab/gitlab-ce:<ver>-ce.0`，合并官方补丁与 SQL migration，同时 COPY 保留已有 overlay（Rust workhorse、i18n、cve_guards、compress_history、avatar 10MiB）
   - 跨版本升级前备份 Postgres（`pg_dump -U gitlab -Fc gitlabhq_production`）；启动后等 omnibus `db:migrate` 完成再验收。失败则 compose 钉升级前 tag 回退
   - 2026-11-11：9071 已吸收官方 CE **19.3.6**（`gitlab/gitlab-ce:19.3.6-ce.0`）。web `toarujs/gitlab_rs_test:latest`=`a7f4214be7d5`（同 tag `:19.3.6`），`/version` `git_sha=45f49a8a0205ee8b73b9ed0e7282ebde316f8f35`。回退 `pre-ce1936`=`847639833808`。构建 `/dockerbuild/gitlab-rs/ce1936-build/`。库备份 `/dockerbuild/gitlab-rs/backups/pre-ce1936.dump`。migrate 至 `20260928091307`。代码 `origin/260914-feat-ci-long-polling` @ `45f49a8`。9061 未动（`toarujs/gitlab-rs:19.3.1`=`d35e89d43311`，VERSION 19.3.1）。确认后再打 `toarujs/gitlab-rs:19.3.6` 升生产。
@@ -180,3 +181,18 @@
   - 2026-10-17 i18n TODO：移除 `:invalid` 特判，补 `activerecord.errors.messages.invalid` 与属性名 `fingerprint_sha256`/`domain_denylist`。
   - 2026-10-19 i18n TODO 续：initializer 给 `ServiceResponse#message`、`ActionController::Base#render`、Flash、Grape `error!` / `Grape::Exceptions::Base`、GraphQL `ExecutionError` 做运行时翻译；真源 `locale/zh_CN/service_messages.po.fragment`（375 条）。md5：server/generic po `48124fe83a785bd1fd0297d71a209aab`、CE po `19bd719dbccc8976315b8ac5a9f0000d`、initializer `a8183b7498959a6ebf664c5e2c0148fc`。金丝雀 `toarujs/gitlab_rs_test:i18n-todo8-20261019`=`cec8ff30293d`，compose override `/dockerbuild/gitlab-rs-cs/docker-compose.i18n-todo.yaml`（healthy，内部 `/-/readiness`/`/-/health`=200），未动生产。扫描分级脚本 `scripts/i18n/{triage_candidates,show_candidate_context}.py`。
   - 2026-10-24：9071 修 UI 轮询 304。`/-/` 非静态路径剥离 `If-None-Match`/`If-Modified-Since`，`poll-interval` 响应强制 `Cache-Control: no-cache, no-store, must-revalidate`。web `toarujs/gitlab_rs_test:latest`=`job304-20261024`=`847639833808`（FROM `pre-job304`=`i18n-todo8-20261019`=`cec8ff30293d`，只 COPY workhorse）。容器内二进制 md5 `170c332eb473484f206f602d68713f7c`，`/version` git_sha=`cc9d9082b8cc871eba89668a38f0f64e69db55a1`。overlay `/dockerbuild/gitlab-rs/overlay-build-job304/`。回退：compose 钉 `pre-job304` 后 `cd /dockerbuild/gitlab-rs-cs && docker compose up -d --no-deps --force-recreate web`。9061 未动。
+
+[2026-11-18 9061 升 CE 19.3.6 + 邀请 overlay]
+- Date: 2026-11-18
+- Context: Discovered by Agent while promoting verified 9071 invite overlay to production 9061
+- Category: Operations & Deployment
+- Instructions:
+  - 9061 与 9071 现为同一镜像 ID `39fbdff98754`。生产 compose `/compose/gitlab/docker-compose.yaml` 钉 `toarujs/gitlab-rs:19.3.6`；金丝雀仍用 `toarujs/gitlab_rs_test:latest`。
+  - Rails VERSION 19.3.6；邀请 initializer md5 `c745da6b2bd7a89d60400d8e57f626a9`。overlay 构建目录 `/dockerbuild/gitlab-rs/overlay-build-invite/`，FROM `toarujs/gitlab_rs_test:19.3.6`。
+  - 回退 9061：compose 改回 `toarujs/gitlab-rs:19.3.1`（=`pre-ce1936-9061`=`d35e89d43311`），`cd /compose/gitlab && docker compose up -d --no-deps --force-recreate web`。库备份 `/dockerbuild/gitlab-rs/backups/pre-9061-ce1936.dump`。
+  - 验证码锁定 5 次后保留 `email_code_sent_at`，60 秒内重发 429。
+  - 当前 web 镜像 ID `2a6dc1ccdb05`（private_profile 修复后）；邀请 initializer md5 `dda731eb6228097c9699a90151cde956`。回退 `pre-privateprofile`=`39fbdff98754`。
+  - 2026-11-19：9061 已换到与 9071 同一镜像 `9d8918fbd441`。生产 tag `toarujs/gitlab-rs:19.3.6` / `:latest` / `:19.3.6-rs.20261118` 均指向该 ID；initializer md5 `db3a668ce402a2af2bc82464b9957e2c`。回退 9061：`toarujs/gitlab-rs:pre-invite-batch-9061`=`2a6dc1ccdb05` 后 `cd /compose/gitlab && docker compose up -d --no-deps --force-recreate web`，再重建 `ci-tls` 并 `docker restart gitlab-runner`。9071 仍 `toarujs/gitlab_rs_test:latest`=`9d8918fbd441`。Docker Hub 尚未推送。
+  - 9061 CI：web `hostname=bak.toarujs.com`，job 在 `gitlab-bridge` 把该名解析到容器 IP；容器只听 80，`:9061` connection refused。走宿主机 SafeLine `:9061` 会被 WAF 对 Docker 网段 403。处理：sidecar `gitlab-ci-tls`（`network_mode: service:web`）用 SafeLine `cert_2` 在容器网卡听 9061 TLS，反代 `127.0.0.1:80`。文件：`/compose/gitlab/ci-tls-nginx.conf`，compose 服务 `ci-tls`。热更新 web 后必须 `docker restart gitlab-runner`，否则 `http://web:80` 会打到旧 IP。
+  - 9061 runner：`privileged=true`（Auto DevOps `docker:dind`）；`volumes` 挂 `/etc/docker/daemon.json`（`docker.1ms.run` 镜像），否则 dind 直连 Docker Hub 超时。配置在 volume `runner-config` 的 `config.toml`。
+  - 2026-11-18：`ci-tls` 默认 keepalive 会把 workhorse（PID 1）软限制 1024 FD 打满，`accept error: Too many open files`，9060 `/health` 与邀请页整站超时。处理：`ci-tls-nginx.conf` 对上游设 `proxy_set_header Connection close`；web compose `ulimits.nofile` 65535。重建顺序：`up -d --no-deps --force-recreate web` → 同样重建 `ci-tls`（`network_mode: service:web`）→ `docker restart gitlab-runner`。邀请发信失败仍由 initializer 渲染 `status: :bad_gateway`。

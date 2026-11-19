@@ -1,0 +1,19 @@
+= form_errors(@application_setting)
+
+#js-signup-form{ data: signup_form_data }
+
+- invite_settings = GitlabRs::InviteLinks.settings
+= form_tag general_admin_application_settings_path(anchor: 'js-signup-settings'), method: :patch, class: 'gl-mt-5 fieldset-form' do
+  = hidden_field_tag :authenticity_token, form_authenticity_token
+  %h4.gl-mt-0= s_('GitlabRs|Invite email allowlist')
+  %p.gl-mb-3= s_('GitlabRs|When enabled, invite registration only accepts emails on the listed domains.')
+  .form-group.gl-form-group
+    %label.gl-flex.gl-items-center.gl-gap-2
+      = hidden_field_tag :gitlab_rs_invite_allowlist_enabled, '0'
+      = check_box_tag :gitlab_rs_invite_allowlist_enabled, '1', invite_settings['allowlist_enabled']
+      %span= s_('GitlabRs|Enable invite email allowlist')
+  .form-group.gl-form-group
+    = label_tag :gitlab_rs_invite_allowlist_domains, s_('GitlabRs|Allowed email domains'), class: 'gl-block col-form-label'
+    = text_area_tag :gitlab_rs_invite_allowlist_domains, Array(invite_settings['allowlist_domains']).join("\n"), rows: 4, class: 'form-control gl-form-input', placeholder: 'example.com'
+    %p.form-text.gl-text-subtle= s_('GitlabRs|One domain per line, matched against the full domain after @.')
+  = submit_tag _('Save changes'), class: 'btn btn-confirm btn-md gl-button'

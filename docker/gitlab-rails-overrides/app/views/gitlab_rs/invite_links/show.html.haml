@@ -1,4 +1,4 @@
-- page_title s_('GitlabRs|Complete your account')
+- page_title(@invite_invalid ? s_('GitlabRs|Invite link is invalid') : (@verified_email.present? ? s_('GitlabRs|Complete your account') : s_('GitlabRs|Verify your email')))
 
 .gl-my-5
   - if @invite_invalid
@@ -6,9 +6,13 @@
     %p= s_('GitlabRs|This invite link is missing, expired, or already used.')
     %p
       = link_to s_('GitlabRs|Sign in'), new_user_session_path
-  - else
+  - elsif @verified_email.present?
+    %p.gl-mb-2= s_('GitlabRs|Step 2 of 2')
     %h2.gl-mb-3= s_('GitlabRs|Complete your account')
     %p.gl-mb-4= s_('GitlabRs|An administrator invited you. Fill in your account details to join.')
+    - if @notice.present?
+      .gl-alert.gl-alert-success.gl-mb-4{ role: 'status' }
+        %p.gl-mb-0= @notice
     - if @errors.present?
       .gl-alert.gl-alert-danger.gl-mb-4{ role: 'alert' }
         - @errors.each do |message|
@@ -16,14 +20,14 @@
     = form_tag "/-/gitlab-rs/invite/#{@token}", method: :post, class: 'gl-mt-3' do
       = hidden_field_tag :authenticity_token, form_authenticity_token
       .form-group.gl-form-group.gl-mb-3
+        = label_tag :email, s_('GitlabRs|Email (verified)'), class: 'gl-block col-form-label'
+        = email_field_tag :email, @verified_email, disabled: true, autocomplete: 'email', class: 'form-control gl-form-input gl-form-input-lg'
+      .form-group.gl-form-group.gl-mb-3
         = label_tag :name, _('Name'), class: 'gl-block col-form-label'
         = text_field_tag :name, @user&.name, required: true, autocomplete: 'name', class: 'form-control gl-form-input gl-form-input-lg'
       .form-group.gl-form-group.gl-mb-3
         = label_tag :username, _('Username'), class: 'gl-block col-form-label'
         = text_field_tag :username, @user&.username, required: true, autocomplete: 'username', class: 'form-control gl-form-input gl-form-input-lg'
-      .form-group.gl-form-group.gl-mb-3
-        = label_tag :email, _('Email'), class: 'gl-block col-form-label'
-        = email_field_tag :email, @user&.email, required: true, autocomplete: 'email', class: 'form-control gl-form-input gl-form-input-lg'
       .form-group.gl-form-group.gl-mb-3
         = label_tag :password, _('Password'), class: 'gl-block col-form-label'
         = password_field_tag :password, nil, required: true, autocomplete: 'new-password', class: 'form-control gl-form-input gl-form-input-lg'
@@ -31,3 +35,28 @@
         = label_tag :password_confirmation, _('Password confirmation'), class: 'gl-block col-form-label'
         = password_field_tag :password_confirmation, nil, required: true, autocomplete: 'new-password', class: 'form-control gl-form-input gl-form-input-lg'
       = submit_tag s_('GitlabRs|Create account'), class: 'btn btn-confirm btn-md gl-button'
+  - else
+    %p.gl-mb-2= s_('GitlabRs|Step 1 of 2')
+    %h2.gl-mb-3= s_('GitlabRs|Verify your email')
+    %p.gl-mb-4= @bound_email.present? ? s_('GitlabRs|This invite is bound to the email below. Request a verification code.') : s_('GitlabRs|Enter your email to receive a 6-digit verification code.')
+    - if @notice.present?
+      .gl-alert.gl-alert-success.gl-mb-4{ role: 'status' }
+        %p.gl-mb-0= @notice
+    - if @errors.present?
+      .gl-alert.gl-alert-danger.gl-mb-4{ role: 'alert' }
+        - @errors.each do |message|
+          %p.gl-mb-0= message
+    = form_tag "/-/gitlab-rs/invite/#{@token}/email", method: :post, class: 'gl-mt-3' do
+      = hidden_field_tag :authenticity_token, form_authenticity_token
+      .form-group.gl-form-group.gl-mb-4
+        = label_tag :email, _('Email'), class: 'gl-block col-form-label'
+        = email_field_tag :email, @bound_email.presence || @pending_email.presence || @user&.email, required: true, autocomplete: 'email', readonly: @bound_email.present?, class: 'form-control gl-form-input gl-form-input-lg'
+      = submit_tag s_('GitlabRs|Send verification code'), class: 'btn btn-confirm btn-md gl-button'
+    - if @pending_email.present?
+      = form_tag "/-/gitlab-rs/invite/#{@token}/verify", method: :post, class: 'gl-mt-5' do
+        = hidden_field_tag :authenticity_token, form_authenticity_token
+        = hidden_field_tag :email, @pending_email
+        .form-group.gl-form-group.gl-mb-4
+          = label_tag :code, s_('GitlabRs|Verification code'), class: 'gl-block col-form-label'
+          = text_field_tag :code, nil, required: true, autocomplete: 'one-time-code', inputmode: 'numeric', maxlength: 6, pattern: '\\d{6}', class: 'form-control gl-form-input gl-form-input-lg'
+        = submit_tag s_('GitlabRs|Verify email'), class: 'btn btn-confirm btn-md gl-button'

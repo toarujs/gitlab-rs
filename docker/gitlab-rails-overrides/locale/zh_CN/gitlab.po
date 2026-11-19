@@ -97769,3 +97769,99 @@ msgstr "登录"
 
 msgid "GitlabRs|Password confirmation does not match."
 msgstr "两次输入的密码不一致。"
+
+msgid "GitlabRs|Verify your email"
+msgstr "验证电子邮件"
+
+msgid "GitlabRs|Step 1 of 2"
+msgstr "第 1 步，共 2 步"
+
+msgid "GitlabRs|Step 2 of 2"
+msgstr "第 2 步，共 2 步"
+
+msgid "GitlabRs|Enter your email to receive a 6-digit verification code."
+msgstr "请输入电子邮件，我们将发送 6 位验证码。"
+
+msgid "GitlabRs|Send verification code"
+msgstr "发送验证码"
+
+msgid "GitlabRs|Verification code"
+msgstr "验证码"
+
+msgid "GitlabRs|Verify email"
+msgstr "验证邮箱"
+
+msgid "GitlabRs|We sent a 6-digit code to your email."
+msgstr "验证码已发送到你的邮箱。"
+
+msgid "GitlabRs|Email verified. Complete your account."
+msgstr "邮箱已验证，请完善帐户信息。"
+
+msgid "GitlabRs|Enter a valid email address."
+msgstr "请输入有效的电子邮件地址。"
+
+msgid "GitlabRs|This email is already in use."
+msgstr "该电子邮件已被使用。"
+
+msgid "GitlabRs|Please wait before requesting another code."
+msgstr "请稍后再重新获取验证码。"
+
+msgid "GitlabRs|Failed to send the verification email."
+msgstr "验证邮件发送失败。"
+
+msgid "GitlabRs|The verification code is incorrect or expired."
+msgstr "验证码不正确或已过期。"
+
+msgid "GitlabRs|Verify your email before creating the account."
+msgstr "请先验证电子邮件，再创建帐户。"
+
+msgid "GitlabRs|Your email verification code"
+msgstr "你的电子邮件验证码"
+
+msgid "GitlabRs|Your GitLab verification code is %{code}. It expires in 10 minutes."
+msgstr "你的 GitLab 验证码是 %{code}。10 分钟内有效。"
+
+msgid "GitlabRs|Email (verified)"
+msgstr "电子邮件（已验证）"
+
+msgid "GitlabRs|Too many incorrect codes. Request a new code."
+msgstr "验证码错误次数过多，请重新获取验证码。"
+
+msgid "GitlabRs|Expiry hours must be an integer from 1 to 720."
+msgstr "过期小时数须为 1 至 720 的整数。"
+
+msgid "GitlabRs|Anonymous count must be a non-negative integer."
+msgstr "匿名条数须为非负整数。"
+
+msgid "GitlabRs|Provide an anonymous count or at least one email."
+msgstr "请填写匿名条数或至少一个电子邮件。"
+
+msgid "GitlabRs|This invite is bound to a different email address."
+msgstr "该邀请已绑定其他电子邮件，不能更改。"
+
+msgid "GitlabRs|This email domain is not allowed."
+msgstr "该邮箱域名不在允许列表中。"
+
+msgid "GitlabRs|This invite is bound to the email below. Request a verification code."
+msgstr "该邀请已绑定下列邮箱，请获取验证码。"
+
+msgid "GitlabRs|Your GitLab invite link"
+msgstr "你的 GitLab 邀请链接"
+
+msgid "GitlabRs|An administrator invited you to GitLab. Open this one-time link to register: %{url}"
+msgstr "管理员邀请你加入 GitLab。请打开此一次性链接完成注册：%{url}"
+
+msgid "GitlabRs|Invite email allowlist"
+msgstr "邀请邮箱白名单"
+
+msgid "GitlabRs|When enabled, invite registration only accepts emails on the listed domains."
+msgstr "开启后，邀请注册只接受列表中的邮箱域名。"
+
+msgid "GitlabRs|Enable invite email allowlist"
+msgstr "启用邀请邮箱白名单"
+
+msgid "GitlabRs|Allowed email domains"
+msgstr "允许的邮箱域名"
+
+msgid "GitlabRs|One domain per line, matched against the full domain after @."
+msgstr "每行一个域名，与 @ 后的完整域名匹配。"
